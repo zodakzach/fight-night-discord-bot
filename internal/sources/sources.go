@@ -50,7 +50,8 @@ func NewDefaultManager(httpc *http.Client, userAgent string) *Manager {
 }
 
 // ufcProvider adapts the ESPN client to the generic Provider interface.
-type ufcProvider struct{ c *espn.HTTPClient }
+// Use the espn.Client interface to allow testing with fakes.
+type ufcProvider struct{ c espn.Client }
 
 func (p *ufcProvider) FetchEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]Event, error) {
 	evs, err := p.c.FetchUFCEventsRange(ctx, startYYYYMMDD, endYYYYMMDD)

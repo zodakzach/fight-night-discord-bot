@@ -110,7 +110,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 
 	msg := buildMessage(org, todays, loc)
-	if _, err := s.ChannelMessageSend(channelID, msg); err != nil {
+	if _, err := sendChannelMessage(s, channelID, msg); err != nil {
 		log.Printf("Guild %s: send message error: %v", guildID, err)
 		return
 	}
@@ -139,6 +139,12 @@ func buildMessage(org string, events []sources.Event, loc *time.Location) string
 	}
 	b.WriteString("\nI'll check daily and post here when there's a " + strings.ToUpper(org) + " event.")
 	return b.String()
+}
+
+// sendChannelMessage is an indirection for tests to capture outbound messages
+// without performing real Discord API calls.
+var sendChannelMessage = func(s *discordgo.Session, channelID, content string) (*discordgo.Message, error) {
+	return s.ChannelMessageSend(channelID, content)
 }
 
 func parseHHMM(s string) (int, int, error) {

@@ -303,12 +303,17 @@ var editInteractionResponse = func(s *discordgo.Session, ic *discordgo.Interacti
 	return err
 }
 
-func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
-	// Acknowledge quickly to avoid the 3s interaction timeout.
-	_ = s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
+// deferInteractionResponse allows tests to avoid making real HTTP requests when acknowledging.
+var deferInteractionResponse = func(s *discordgo.Session, ic *discordgo.InteractionCreate) error {
+	return s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
+}
+
+func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+	// Acknowledge quickly to avoid the 3s interaction timeout.
+	_ = deferInteractionResponse(s, ic)
 
 	// Timezone selection for display
 	_, tzName, _ := st.GetGuildSettings(ic.GuildID)

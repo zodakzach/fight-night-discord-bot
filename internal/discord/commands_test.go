@@ -44,7 +44,7 @@ func (f *fakeProvider) FetchEventsRange(ctx context.Context, startYYYYMMDD, endY
 func TestHandleStatus_UsesDefaultTZWhenUnset(t *testing.T) {
 	s := &discordgo.Session{}
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{GuildID: "g1"}}
-	st := state.Load("does-not-exist.json")
+	st := state.Load(":memory:")
 	cfg := config.Config{TZ: "America/New_York", RunAt: "16:00"}
 
 	var got string
@@ -68,7 +68,7 @@ func TestHandleStatus_UsesDefaultTZWhenUnset(t *testing.T) {
 func TestHandleStatus_UsesGuildTZWhenSet(t *testing.T) {
 	s := &discordgo.Session{}
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{GuildID: "g1"}}
-	st := state.Load("does-not-exist.json")
+	st := state.Load(":memory:")
 	st.UpdateGuildTZ("g1", "Europe/London")
 	cfg := config.Config{TZ: "America/New_York", RunAt: "16:00"}
 
@@ -90,7 +90,7 @@ func TestHandleStatus_UsesGuildTZWhenSet(t *testing.T) {
 func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	s := &discordgo.Session{}
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{GuildID: "g1"}}
-	st := state.Load("does-not-exist.json")
+	st := state.Load(":memory:")
 	st.UpdateGuildTZ("g1", "America/New_York")
 	cfg := config.Config{TZ: "America/New_York"}
 
@@ -112,7 +112,10 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 		got = content
 		return nil
 	}
+	oldDefer := deferInteractionResponse
+	deferInteractionResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
 	defer func() { editInteractionResponse = old }()
+	defer func() { deferInteractionResponse = oldDefer }()
 
 	handleNextEvent(s, ic, st, cfg, mgr)
 
@@ -124,7 +127,7 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 func TestHandleNextEvent_NoneFound(t *testing.T) {
 	s := &discordgo.Session{}
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{GuildID: "g1"}}
-	st := state.Load("does-not-exist.json")
+	st := state.Load(":memory:")
 	cfg := config.Config{TZ: "America/New_York"}
 
 	f := &fakeProvider{byDate: map[string][]sources.Event{}}
@@ -137,7 +140,10 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 		got = content
 		return nil
 	}
+	oldDefer := deferInteractionResponse
+	deferInteractionResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
 	defer func() { editInteractionResponse = old }()
+	defer func() { deferInteractionResponse = oldDefer }()
 
 	handleNextEvent(s, ic, st, cfg, mgr)
 
