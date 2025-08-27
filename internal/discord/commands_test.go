@@ -8,31 +8,20 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
-	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
-// fakeClient implements espn.Client for tests
-type fakeClient struct {
-	byDate map[string][]espn.Event
+// fakeProvider implements sources.Provider for tests
+type fakeProvider struct {
+	byDate map[string][]sources.Event
 	err    error
 }
 
-func (f *fakeClient) FetchUFCEvents(ctx context.Context, yyyymmdd string) ([]espn.Event, error) {
+func (f *fakeProvider) FetchEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]sources.Event, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	if f.byDate == nil {
-		return nil, nil
-	}
-	return f.byDate[yyyymmdd], nil
-}
-
-func (f *fakeClient) FetchUFCEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]espn.Event, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	// naive range iteration day by day
 	if f.byDate == nil {
 		return nil, nil
 	}
@@ -42,7 +31,7 @@ func (f *fakeClient) FetchUFCEventsRange(ctx context.Context, startYYYYMMDD, end
 	}
 	start := parse(startYYYYMMDD)
 	end := parse(endYYYYMMDD)
-	var out []espn.Event
+	var out []sources.Event
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		k := d.Format("20060102")
 		if evs, ok := f.byDate[k]; ok {
@@ -109,11 +98,13 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	now := time.Now().UTC()
 	tomorrow := now.Add(24 * time.Hour)
 	dateKey := tomorrow.Format("20060102")
-	f := &fakeClient{byDate: map[string][]espn.Event{
+	f := &fakeProvider{byDate: map[string][]sources.Event{
 		dateKey: {
 			{ID: "1", Name: "UFC Fight Night: Test", ShortName: "UFC Test", Date: tomorrow.Format(time.RFC3339)},
 		},
 	}}
+	mgr := sources.NewManager()
+	mgr.Register("ufc", f)
 
 	var got string
 	old := editInteractionResponse
@@ -123,7 +114,7 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	}
 	defer func() { editInteractionResponse = old }()
 
-	handleNextEvent(s, ic, st, cfg, f)
+	handleNextEvent(s, ic, st, cfg, mgr)
 
 	if !strings.Contains(got, "Next UFC event: UFC Fight Night: Test") {
 		t.Fatalf("expected next event in reply, got: %q", got)
@@ -136,7 +127,9 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 	st := state.Load("does-not-exist.json")
 	cfg := config.Config{TZ: "America/New_York"}
 
-	f := &fakeClient{byDate: map[string][]espn.Event{}}
+	f := &fakeProvider{byDate: map[string][]sources.Event{}}
+	mgr := sources.NewManager()
+	mgr.Register("ufc", f)
 
 	var got string
 	old := editInteractionResponse
@@ -146,7 +139,7 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 	}
 	defer func() { editInteractionResponse = old }()
 
-	handleNextEvent(s, ic, st, cfg, f)
+	handleNextEvent(s, ic, st, cfg, mgr)
 
 	if !strings.Contains(got, "No upcoming UFC events") {
 		t.Fatalf("expected no-events message, got: %q", got)

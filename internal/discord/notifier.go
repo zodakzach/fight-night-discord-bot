@@ -1,21 +1,21 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"time"
 
-	"context"
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
-	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
-func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, client espn.Client) {
+func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	loc, err := time.LoadLocation(cfg.TZ)
 	if err != nil {
 		log.Printf("Invalid TZ %q; using local: %v", cfg.TZ, err)
@@ -23,8 +23,8 @@ func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, cli
 	}
 	go func() {
 		time.Sleep(2 * time.Second)
-		runNotifierOnce(s, st, client, cfg)
-		scheduleDaily(cfg.RunAt, loc, func() { runNotifierOnce(s, st, client, cfg) })
+		runNotifierOnce(s, st, mgr, cfg)
+		scheduleDaily(cfg.RunAt, loc, func() { runNotifierOnce(s, st, mgr, cfg) })
 	}()
 }
 
@@ -48,13 +48,13 @@ func scheduleDaily(hhmm string, loc *time.Location, fn func()) {
 	}
 }
 
-func runNotifierOnce(s *discordgo.Session, st *state.Store, client espn.Client, cfg config.Config) {
+func runNotifierOnce(s *discordgo.Session, st *state.Store, mgr *sources.Manager, cfg config.Config) {
 	for _, gid := range st.GuildIDs() {
-		notifyGuild(s, st, gid, client, cfg)
+		notifyGuild(s, st, gid, mgr, cfg)
 	}
 }
 
-func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client espn.Client, cfg config.Config) {
+func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sources.Manager, cfg config.Config) {
 	channelID, tzName, lastPosted := st.GetGuildSettings(guildID)
 	if channelID == "" {
 		return
@@ -65,8 +65,14 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 		return
 	}
 
-	// Respect org selection (currently only "ufc" supported)
-	if org := st.GetGuildOrg(guildID); org != "ufc" {
+	// Require org to be explicitly set and have a provider
+	if !st.HasGuildOrg(guildID) {
+		return
+	}
+	org := st.GetGuildOrg(guildID)
+	provider, ok := mgr.Provider(org)
+	if !ok {
+		log.Printf("Guild %s: no provider for org %q", guildID, org)
 		return
 	}
 
@@ -78,14 +84,13 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 	todayYYYYMMDD := now.Format("20060102")
 	todayKey := now.Format("2006-01-02")
 
-	// ESPN API supports year-based fetch; we fetch the year and filter to today (guild TZ).
-	events, err := client.FetchUFCEvents(context.Background(), todayYYYYMMDD)
+	// Fetch events for today and filter to those occurring today in the guild timezone.
+	events, err := provider.FetchEventsRange(context.Background(), todayYYYYMMDD, todayYYYYMMDD)
 	if err != nil {
 		log.Printf("Guild %s: fetch error: %v", guildID, err)
 		return
 	}
-	// Filter events to those occurring today in the guild timezone.
-	var todays []espn.Event
+	var todays []sources.Event
 	for _, e := range events {
 		t, err := time.Parse(time.RFC3339, e.Date)
 		if err != nil {
@@ -99,24 +104,24 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 		return
 	}
 
-	already := lastPosted != nil && lastPosted["ufc"] == todayKey
+	already := lastPosted != nil && lastPosted[org] == todayKey
 	if already {
 		return
 	}
 
-	msg := buildMessage(todays, loc)
+	msg := buildMessage(org, todays, loc)
 	if _, err := s.ChannelMessageSend(channelID, msg); err != nil {
 		log.Printf("Guild %s: send message error: %v", guildID, err)
 		return
 	}
 
-	st.MarkPosted(guildID, "ufc", todayKey)
+	st.MarkPosted(guildID, org, todayKey)
 	_ = st.Save(cfg.StatePath)
 }
 
-func buildMessage(events []espn.Event, loc *time.Location) string {
+func buildMessage(org string, events []sources.Event, loc *time.Location) string {
 	var b strings.Builder
-	b.WriteString("UFC Fight Night Alert:\n")
+	b.WriteString(strings.ToUpper(org) + " Fight Night Alert:\n")
 	for _, e := range events {
 		name := e.Name
 		if name == "" {
@@ -132,7 +137,7 @@ func buildMessage(events []espn.Event, loc *time.Location) string {
 			fmt.Fprintf(&b, "• %s\n", name)
 		}
 	}
-	b.WriteString("\nI'll check daily and post here when there's a UFC event.")
+	b.WriteString("\nI'll check daily and post here when there's a " + strings.ToUpper(org) + " event.")
 	return b.String()
 }
 

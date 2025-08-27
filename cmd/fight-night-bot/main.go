@@ -8,7 +8,7 @@ import (
 
 	cfgpkg "github.com/zodakzach/fight-night-discord-bot/internal/config"
 	discpkg "github.com/zodakzach/fight-night-discord-bot/internal/discord"
-	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
@@ -30,9 +30,9 @@ func main() {
 
 	discpkg.RegisterCommands(dg, cfg.DevGuild)
 
-	espnClient := espn.NewClient(http.DefaultClient, cfg.UserAgent)
-	discpkg.BindHandlers(dg, st, cfg, espnClient)
-	discpkg.StartNotifier(dg, st, cfg, espnClient)
+	mgr := sources.NewDefaultManager(http.DefaultClient, cfg.UserAgent)
+	discpkg.BindHandlers(dg, st, cfg, mgr)
+	discpkg.StartNotifier(dg, st, cfg, mgr)
 
 	log.Println("Bot running. Press Ctrl+C to exit.")
 	select {}

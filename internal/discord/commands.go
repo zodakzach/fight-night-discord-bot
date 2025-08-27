@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
-	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
@@ -100,16 +101,16 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 	}
 }
 
-func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, client espn.Client) {
+func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
 	})
 	s.AddHandler(func(s *discordgo.Session, ic *discordgo.InteractionCreate) {
-		handleInteraction(s, ic, st, cfg, client)
+		handleInteraction(s, ic, st, cfg, mgr)
 	})
 }
 
-func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, client espn.Client) {
+func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	if ic.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
@@ -133,13 +134,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	case "help":
 		handleHelp(s, ic)
 	case "next-event":
-		handleNextEvent(s, ic, st, cfg, client)
+		handleNextEvent(s, ic, st, cfg, mgr)
 	default:
-		// Legacy/internal helpers still exist: next
-		if data.Name == "next" {
-			handleNextEvent(s, ic, st, cfg, client)
-			return
-		}
 		replyEphemeral(s, ic, "Unknown command.")
 	}
 }
@@ -190,6 +186,10 @@ func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 
 	switch state {
 	case "on":
+		if !st.HasGuildOrg(ic.GuildID) {
+			replyEphemeral(s, ic, "Please set an organization first with /set-org before enabling notifications.")
+			return
+		}
 		st.UpdateGuildNotifyEnabled(ic.GuildID, true)
 		_ = st.Save(cfg.StatePath)
 		replyEphemeral(s, ic, "Notifications enabled.")
@@ -255,17 +255,29 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	if tz == "" {
 		tz = cfg.TZ
 	}
-	replyEphemeral(s, ic, fmt.Sprintf("Channel: %s\nTimezone: %s\nRun time: %s", ch, tz, cfg.RunAt))
+	orgDisplay := "(not set)"
+	if st.HasGuildOrg(ic.GuildID) {
+		orgDisplay = strings.ToUpper(st.GetGuildOrg(ic.GuildID))
+	}
+	notify := "off"
+	if st.GetGuildNotifyEnabled(ic.GuildID) {
+		notify = "on"
+	}
+	msg := fmt.Sprintf(
+		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nRun time: %s",
+		ch, tz, orgDisplay, notify, cfg.RunAt,
+	)
+	replyEphemeral(s, ic, msg)
 }
 
 func handleHelp(s *discordgo.Session, ic *discordgo.InteractionCreate) {
 	msg := "Commands:\n" +
-		"- /notify state:<on|off> — Toggle notifications.\n" +
-		"- /set-org org:<ufc> — Set organization.\n" +
+		"- /set-org org:<ufc> — Pick your org. Required before enabling notifications.\n" +
 		"- /set-channel [channel:#channel] — Choose post channel.\n" +
+		"- /notify state:<on|off> — Toggle notifications (requires org set).\n" +
 		"- /set-tz tz:<Region/City> — Set timezone (IANA).\n" +
 		"- /status — Show current settings.\n" +
-		"- /next-event — Show the next UFC event."
+		"- /next-event — Show the next event for your org."
 	replyEphemeral(s, ic, msg)
 }
 
@@ -291,7 +303,7 @@ var editInteractionResponse = func(s *discordgo.Session, ic *discordgo.Interacti
 	return err
 }
 
-func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, client espn.Client) {
+func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	// Acknowledge quickly to avoid the 3s interaction timeout.
 	_ = s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -308,12 +320,23 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		loc = time.Local
 	}
 
+	// Resolve org/provider
+	org := st.GetGuildOrg(ic.GuildID)
+	if org == "" {
+		org = "ufc"
+	}
+	provider, ok := mgr.Provider(org)
+	if !ok {
+		_ = editInteractionResponse(s, ic, "Unsupported organization for next-event. Try /set-org to a supported one.")
+		return
+	}
+
 	nowUTC := time.Now().UTC()
 	nowLocal := time.Now().In(loc)
 	start := nowLocal.Format("20060102")
 	end := nowLocal.AddDate(0, 0, 30).Format("20060102")
 
-	events, err := client.FetchUFCEventsRange(context.Background(), start, end)
+	events, err := provider.FetchEventsRange(context.Background(), start, end)
 	if err != nil {
 		_ = editInteractionResponse(s, ic, "Error fetching events. Please try again later.")
 		return
@@ -358,7 +381,7 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	}
 
 	if nextAt.IsZero() {
-		_ = editInteractionResponse(s, ic, "No upcoming UFC events found in the next 30 days.")
+		_ = editInteractionResponse(s, ic, "No upcoming "+strings.ToUpper(org)+" events found in the next 30 days.")
 		return
 	}
 
@@ -377,7 +400,7 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		} else {
 			rel = fmt.Sprintf("%dm", m)
 		}
-		msg = fmt.Sprintf("Next UFC event: %s\nWhen: %s (%s) — in %s", nextName, localTime.Format("Mon Jan 2, 3:04 PM MST"), tzName, rel)
+		msg = fmt.Sprintf("Next %s event: %s\nWhen: %s (%s) — in %s", strings.ToUpper(org), nextName, localTime.Format("Mon Jan 2, 3:04 PM MST"), tzName, rel)
 	} else {
 		ago := -until
 		h := int(ago.Hours())
@@ -388,7 +411,7 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		} else {
 			rel = fmt.Sprintf("%dm ago", m)
 		}
-		msg = fmt.Sprintf("Today’s UFC event: %s\nStarted: %s (%s) — %s", nextName, localTime.Format("3:04 PM"), tzName, rel)
+		msg = fmt.Sprintf("Today’s %s event: %s\nStarted: %s (%s) — %s", strings.ToUpper(org), nextName, localTime.Format("3:04 PM"), tzName, rel)
 	}
 	_ = editInteractionResponse(s, ic, msg)
 }

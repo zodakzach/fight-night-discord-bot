@@ -156,8 +156,9 @@ func (s *Store) GetGuildNotifyEnabled(guildID string) bool {
 	var enabled sql.NullInt32
 	row := s.db.QueryRowx("SELECT enabled FROM guild_settings WHERE guild_id = ?", guildID)
 	_ = row.Scan(&enabled)
+	// Default: notifications OFF until explicitly enabled.
 	if !enabled.Valid {
-		return true // default enabled if not set
+		return false
 	}
 	return enabled.Int32 != 0
 }
@@ -182,4 +183,12 @@ func (s *Store) GetGuildOrg(guildID string) string {
 		return "ufc"
 	}
 	return org
+}
+
+// HasGuildOrg returns true if an org has been explicitly set.
+func (s *Store) HasGuildOrg(guildID string) bool {
+	var org sql.NullString
+	row := s.db.QueryRowx("SELECT org FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&org)
+	return org.Valid && org.String != ""
 }

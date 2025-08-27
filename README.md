@@ -1,6 +1,6 @@
 # Fight Night Discord Bot
 
-A small, focused Discord bot that posts MMA fight-night updates to your server using ESPN’s UFC scoreboard. Pick your org (UFC today), choose a channel, and get one clean post per even.
+A small, focused Discord bot that posts MMA fight-night updates to your server. It uses a modular source system (ESPN for UFC today) so as more orgs are added, the bot can fetch from different providers. Pick your org, choose a channel, and get one clean post per event.
 
 ## Why
 I'm lazy and tired of manually posting fight-night events in my Discord server. I announce fights and share my picks, and keeping up with those event posts is a chore — so I made this bot to announce the fight nights for me.
@@ -9,41 +9,53 @@ I'm lazy and tired of manually posting fight-night events in my Discord server. 
 - Notifies a configured channel on fight nights for your chosen org (UFC supported now).
 - Lets you select the org and destination channel for posts.
 - Provides a quick "next event" lookup command.
-- Tracks last-posted event per guild to prevent duplicates.
+- Tracks last-posted event per guild and per org to prevent duplicates.
 
 ## Features
 - Org selection per guild (UFC supported today; others later).
+- Notifications are OFF by default; you must set an org before enabling.
 - Channel routing to a specific, configurable channel.
-- Event-day posting with at-most-once delivery per event/guild.
+- Event-day posting with at-most-once delivery per event/guild/org.
 - Next-event lookup via slash command.
 
 ## Commands
 Representative commands (names/args may vary slightly based on current implementation):
-- `/notify on|off`: Enable or disable fight-night posts for this guild.
-- `/set-org org:<ufc>`: Choose the organization (currently UFC only).
+- `/set-org org:<ufc>`: Choose the organization (currently UFC only). Required before enabling notifications.
 - `/set-channel channel:<#channel>`: Pick the channel for notifications.
+- `/notify on|off`: Enable or disable fight-night posts for this guild (requires org set; default is off).
 - `/next-event`: Show the next event for the selected org.
 - `/set-tz tz:<Region/City>`: Set the guild timezone (IANA name).
 - `/status`: Show current settings for this guild.
 - `/help`: Show available commands and usage.
 
+## Getting Started
+- Set org: run `/set-org org:<ufc>`.
+- Pick channel: run `/set-channel channel:<#your-channel>`.
+- Optional timezone: run `/set-tz tz:<Region/City>` (defaults to `TZ` env).
+- Enable notifications: run `/notify on` (notifications are off by default).
+- Verify: run `/next-event` to see the next event for your org.
+
+Notes
+- Posts run daily at `RUN_AT` in your configured timezone; event-day posts only.
+- You must set an org before enabling notifications.
+
 ## Tech Stack
 - Language: Go 1.25
 - Discord: `discordgo` slash commands and interactions
-- HTTP: stdlib `net/http` to ESPN UFC scoreboard
+- Sources: modular provider interface; UFC via ESPN scraping client
 - Scheduling: daily scheduler, IANA timezone via `TZ`
-- State (current): JSON file (`STATE_FILE`, default `state.json`)
-- State (planned): SQLite + `sqlx` for durable, concurrent-safe storage
+- State: persistent store for guild config and last-posted
 - Config: environment-first with `.env` via `godotenv`
 - Tests: standard `testing` with table-driven cases
 
 ## Project Structure
-- `cmd/fight-night-bot/main.go`: Entrypoint; wires config, Discord, ESPN client, scheduler.
+- `cmd/fight-night-bot/main.go`: Entrypoint; wires config, Discord, sources manager, scheduler.
 - `internal/config`: Loads env (`.env` via `godotenv`), defaults, required vars.
 - `internal/discord`: Slash commands and daily notifier scheduling/handlers.
-- `internal/espn`: Thin HTTP client for ESPN UFC scoreboard API.
-- `internal/state`: JSON-backed guild settings and last-posted state.
-- `.env` (local only) and `state.json` (runtime state; default `state.json`).
+- `internal/sources`: Provider interfaces and registry for org-specific event sources.
+- `internal/espn`: Scraper client used by the UFC provider.
+- `internal/state`: Guild settings and last-posted state.
+- `.env` (local only) and state storage (see `internal/state`).
 
 ## Configuration
 - Required:
@@ -84,13 +96,13 @@ Target: containerized deploy, with a small persistent volume for SQLite once mig
 Note: If you want, we can add a Dockerfile and example `fly.toml` to streamline deploys.
 
 ## Roadmap
-- Storage: migrate state to SQLite + `sqlx` with simple migrations and file locking.
-- Commands: add `/status`, `/help`, per-guild channel/roles, per-guild `RUN_AT`/timezone.
-- Messaging: richer embeds (event card, start times), prelim/main-card details.
-- Reliability: retries/backoff for ESPN, request throttling, clearer operational logs.
-- Scheduling: event-day-only improvements, DST hardening across timezones.
-- Ops/CI: Docker image, release workflow, fmt/vet/tests in CI.
-- Security: least-privilege bot permissions, secret handling guidance.
+- Sources: add more orgs (Bellator, PFL, ONE) via providers; health checks and fallbacks per provider.
+- Notifications: per-guild `RUN_AT`; per-org toggles; improved de-duplication by event ID and windowing.
+- Messaging: rich embeds (title, banner, links), start-time summaries, prelim/main-card breakdowns.
+- Reliability: HTTP retries with backoff, rate limiting, basic response caching, stricter time parsing.
+- Scheduling: DST edge-case tests and fixes; year-boundary range correctness; resilience against clock drift.
+- Ops/CI: Dockerfile, GitHub Actions for fmt/vet/test, release artifacts; lightweight observability/structured logs.
+- Security: least-privilege bot permissions, secret handling guidance, user-agent customization knob.
 
 ## Contributing
 - Try it in a dev guild and share behavior logs or screenshots.
