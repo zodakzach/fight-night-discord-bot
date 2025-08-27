@@ -23,6 +23,9 @@ Representative commands (names/args may vary slightly based on current implement
 - `/set-org org:<ufc>`: Choose the organization (currently UFC only).
 - `/set-channel channel:<#channel>`: Pick the channel for notifications.
 - `/next-event`: Show the next event for the selected org.
+- `/set-tz tz:<Region/City>`: Set the guild timezone (IANA name).
+- `/status`: Show current settings for this guild.
+- `/help`: Show available commands and usage.
 
 ## Tech Stack
 - Language: Go 1.25

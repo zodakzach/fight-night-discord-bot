@@ -60,6 +60,16 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 		return
 	}
 
+	// Respect per-guild notify enabled flag (default enabled when unset)
+	if !st.GetGuildNotifyEnabled(guildID) {
+		return
+	}
+
+	// Respect org selection (currently only "ufc" supported)
+	if org := st.GetGuildOrg(guildID); org != "ufc" {
+		return
+	}
+
 	loc, err := time.LoadLocation(tzName)
 	if err != nil || tzName == "" {
 		loc, _ = time.LoadLocation(cfg.TZ)

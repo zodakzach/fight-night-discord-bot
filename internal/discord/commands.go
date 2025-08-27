@@ -14,59 +14,89 @@ import (
 )
 
 func RegisterCommands(s *discordgo.Session, devGuild string) {
-	cmd := &discordgo.ApplicationCommand{
-		Name:        "notify",
-		Description: "Configure UFC fight-night notifications",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "set-channel",
-				Description: "Set the channel to post announcements",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionChannel,
-						Name:        "channel",
-						Description: "Channel to use (default: this channel)",
-						Required:    false,
-						// GuildNews corresponds to announcement channels for this discordgo version
-						ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
+	// Define top-level commands matching README
+	cmds := []*discordgo.ApplicationCommand{
+		{
+			Name:        "notify",
+			Description: "Enable or disable fight-night posts for this guild",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "state",
+					Description: "Enable or disable notifications",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "on", Value: "on"},
+						{Name: "off", Value: "off"},
 					},
 				},
 			},
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "set-tz",
-				Description: "Set the server timezone (IANA, e.g. America/New_York)",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "tz",
-						Description: "Timezone name",
-						Required:    true,
+		},
+		{
+			Name:        "set-org",
+			Description: "Choose the organization (currently UFC only)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "org",
+					Description: "Organization",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "ufc", Value: "ufc"},
 					},
 				},
 			},
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "status",
-				Description: "Show current config",
+		},
+		{
+			Name:        "set-tz",
+			Description: "Set the guild's timezone (IANA name)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "tz",
+					Description: "Timezone, e.g., America/Los_Angeles",
+					Required:    true,
+				},
 			},
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "next",
-				Description: "Show the next UFC event",
+		},
+		{
+			Name:        "status",
+			Description: "Show current bot settings for this guild",
+		},
+		{
+			Name:        "help",
+			Description: "Show available commands and usage",
+		},
+		{
+			Name:        "set-channel",
+			Description: "Pick the channel for notifications",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionChannel,
+					Name:         "channel",
+					Description:  "Channel to use (default: this channel)",
+					Required:     false,
+					ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
+				},
 			},
+		},
+		{
+			Name:        "next-event",
+			Description: "Show the next event for the selected org",
 		},
 	}
 
-	var err error
-	if devGuild != "" {
-		_, err = s.ApplicationCommandCreate(s.State.User.ID, devGuild, cmd)
-	} else {
-		_, err = s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
-	}
-	if err != nil {
-		log.Printf("register commands: %v", err)
+	appID := s.State.User.ID
+	for _, cmd := range cmds {
+		var err error
+		if devGuild != "" {
+			_, err = s.ApplicationCommandCreate(appID, devGuild, cmd)
+		} else {
+			_, err = s.ApplicationCommandCreate(appID, "", cmd)
+		}
+		if err != nil {
+			log.Printf("register command %q: %v", cmd.Name, err)
+		}
 	}
 }
 
@@ -84,32 +114,39 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		return
 	}
 	data := ic.ApplicationCommandData()
-	if data.Name != "notify" {
-		return
-	}
 	if ic.GuildID == "" {
 		replyEphemeral(s, ic, "Please use this command in a server.")
 		return
 	}
 
-	sub := data.Options[0].Name
-	switch sub {
+	switch data.Name {
 	case "set-channel":
 		handleSetChannel(s, ic, st, cfg)
+	case "notify":
+		handleNotifyToggle(s, ic, st, cfg)
 	case "set-tz":
 		handleSetTZ(s, ic, st, cfg)
+	case "set-org":
+		handleSetOrg(s, ic, st, cfg)
 	case "status":
 		handleStatus(s, ic, st, cfg)
-	case "next":
+	case "help":
+		handleHelp(s, ic)
+	case "next-event":
 		handleNextEvent(s, ic, st, cfg, client)
 	default:
-		replyEphemeral(s, ic, "Unknown subcommand.")
+		// Legacy/internal helpers still exist: next
+		if data.Name == "next" {
+			handleNextEvent(s, ic, st, cfg, client)
+			return
+		}
+		replyEphemeral(s, ic, "Unknown command.")
 	}
 }
 
 func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
 	// Choose provided channel or current channel
-	opts := ic.ApplicationCommandData().Options[0].Options
+	opts := ic.ApplicationCommandData().Options
 	channelID := ic.ChannelID
 	if len(opts) > 0 {
 		channelID = opts[0].ChannelValue(s).ID
@@ -132,8 +169,75 @@ func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	replyEphemeral(s, ic, "Announcement channel updated.")
 }
 
+func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /notify state:<on|off>")
+		return
+	}
+	state := opts[0].StringValue()
+
+	// Permission check similar to set-channel
+	perms, err := s.UserChannelPermissions(ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if perms&discordgo.PermissionManageChannels == 0 && perms&discordgo.PermissionAdministrator == 0 {
+		replyEphemeral(s, ic, "You need Manage Channels permission to change notifications.")
+		return
+	}
+
+	switch state {
+	case "on":
+		st.UpdateGuildNotifyEnabled(ic.GuildID, true)
+		_ = st.Save(cfg.StatePath)
+		replyEphemeral(s, ic, "Notifications enabled.")
+	case "off":
+		st.UpdateGuildNotifyEnabled(ic.GuildID, false)
+		_ = st.Save(cfg.StatePath)
+		replyEphemeral(s, ic, "Notifications disabled.")
+	default:
+		replyEphemeral(s, ic, "Invalid state. Use on or off.")
+	}
+}
+
+func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /set-org org:<ufc>")
+		return
+	}
+	org := opts[0].StringValue()
+
+	// Permission check similar to set-channel
+	perms, err := s.UserChannelPermissions(ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if perms&discordgo.PermissionManageChannels == 0 && perms&discordgo.PermissionAdministrator == 0 {
+		replyEphemeral(s, ic, "You need Manage Channels permission to set the organization.")
+		return
+	}
+
+	switch org {
+	case "ufc":
+		st.UpdateGuildOrg(ic.GuildID, org)
+		_ = st.Save(cfg.StatePath)
+		replyEphemeral(s, ic, "Organization set to UFC.")
+	default:
+		replyEphemeral(s, ic, "Unsupported org. Currently only 'ufc' is available.")
+	}
+}
+
 func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
-	tz := ic.ApplicationCommandData().Options[0].Options[0].StringValue()
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /set-tz tz:<IANA timezone>")
+		return
+	}
+	tz := opts[0].StringValue()
 	if _, err := time.LoadLocation(tz); err != nil {
 		replyEphemeral(s, ic, "Invalid timezone. Example: America/Los_Angeles")
 		return
@@ -152,6 +256,17 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 		tz = cfg.TZ
 	}
 	replyEphemeral(s, ic, fmt.Sprintf("Channel: %s\nTimezone: %s\nRun time: %s", ch, tz, cfg.RunAt))
+}
+
+func handleHelp(s *discordgo.Session, ic *discordgo.InteractionCreate) {
+	msg := "Commands:\n" +
+		"- /notify state:<on|off> — Toggle notifications.\n" +
+		"- /set-org org:<ufc> — Set organization.\n" +
+		"- /set-channel [channel:#channel] — Choose post channel.\n" +
+		"- /set-tz tz:<Region/City> — Set timezone (IANA).\n" +
+		"- /status — Show current settings.\n" +
+		"- /next-event — Show the next UFC event."
+	replyEphemeral(s, ic, msg)
 }
 
 func replyEphemeral(s *discordgo.Session, ic *discordgo.InteractionCreate, content string) {

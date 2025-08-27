@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"log"
 
 	"github.com/jmoiron/sqlx"
@@ -42,7 +43,9 @@ func ensureSchema(db *sqlx.DB) error {
         CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id   TEXT PRIMARY KEY,
             channel_id TEXT,
-            timezone   TEXT
+            timezone   TEXT,
+            enabled    INTEGER,
+            org        TEXT
         );
         CREATE TABLE IF NOT EXISTS last_posted (
             guild_id  TEXT NOT NULL,
@@ -51,7 +54,18 @@ func ensureSchema(db *sqlx.DB) error {
             PRIMARY KEY (guild_id, sport)
         );
     `)
-	return err
+	if err != nil {
+		return err
+	}
+	// Best-effort migration: add columns if upgrading from older schema.
+	// SQLite may error if the column already exists; ignore such errors.
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN enabled INTEGER"); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN org TEXT"); err != nil {
+		// ignore
+	}
+	return nil
 }
 
 // Save is a no-op for the SQLite-backed store and exists for backward compatibility.
@@ -120,4 +134,52 @@ func (s *Store) MarkPosted(guildID, sport, yyyyMmDd string) {
 	); err != nil {
 		log.Printf("state: mark posted for %s/%s: %v", guildID, sport, err)
 	}
+}
+
+// UpdateGuildNotifyEnabled upserts the notify enabled flag for the guild.
+func (s *Store) UpdateGuildNotifyEnabled(guildID string, enabled bool) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		log.Printf("state: ensure guild %s: %v", guildID, err)
+		return
+	}
+	val := 0
+	if enabled {
+		val = 1
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET enabled = ? WHERE guild_id = ?", val, guildID); err != nil {
+		log.Printf("state: update enabled for %s: %v", guildID, err)
+	}
+}
+
+// GetGuildNotifyEnabled returns true if notifications are enabled (default true when unset).
+func (s *Store) GetGuildNotifyEnabled(guildID string) bool {
+	var enabled sql.NullInt32
+	row := s.db.QueryRowx("SELECT enabled FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&enabled)
+	if !enabled.Valid {
+		return true // default enabled if not set
+	}
+	return enabled.Int32 != 0
+}
+
+// UpdateGuildOrg upserts the org for the guild.
+func (s *Store) UpdateGuildOrg(guildID, org string) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		log.Printf("state: ensure guild %s: %v", guildID, err)
+		return
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET org = ? WHERE guild_id = ?", org, guildID); err != nil {
+		log.Printf("state: update org for %s: %v", guildID, err)
+	}
+}
+
+// GetGuildOrg returns the selected org for the guild (default "ufc").
+func (s *Store) GetGuildOrg(guildID string) string {
+	var org string
+	row := s.db.QueryRowx("SELECT org FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&org)
+	if org == "" {
+		return "ufc"
+	}
+	return org
 }
