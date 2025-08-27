@@ -88,17 +88,20 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 	}
 
 	appID := s.State.User.ID
-	for _, cmd := range cmds {
-		var err error
-		if devGuild != "" {
-			_, err = s.ApplicationCommandCreate(appID, devGuild, cmd)
-		} else {
-			_, err = s.ApplicationCommandCreate(appID, "", cmd)
-		}
-		if err != nil {
-			log.Printf("register command %q: %v", cmd.Name, err)
-		}
+	var (
+		res []*discordgo.ApplicationCommand
+		err error
+	)
+	if devGuild != "" {
+		res, err = s.ApplicationCommandBulkOverwrite(appID, devGuild, cmds)
+	} else {
+		res, err = s.ApplicationCommandBulkOverwrite(appID, "", cmds)
 	}
+	if err != nil {
+		log.Printf("bulk overwrite commands: %v", err)
+		return
+	}
+	log.Printf("registered %d commands via bulk overwrite", len(res))
 }
 
 func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
