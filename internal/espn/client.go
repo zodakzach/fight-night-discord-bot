@@ -24,6 +24,7 @@ type scoreboard struct {
 
 type Client interface {
 	FetchUFCEvents(ctx context.Context, yyyymmdd string) ([]Event, error)
+	FetchUFCEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]Event, error)
 }
 
 type HTTPClient struct {
@@ -39,10 +40,45 @@ func NewClient(httpc *http.Client, userAgent string) *HTTPClient {
 }
 
 func (c *HTTPClient) FetchUFCEvents(ctx context.Context, yyyymmdd string) ([]Event, error) {
+	// ESPN scoreboard 'dates' param accepts a year (e.g., 2025). Parse the year and fetch.
+	if len(yyyymmdd) < 4 {
+		return nil, fmt.Errorf("invalid date %q", yyyymmdd)
+	}
+	year := yyyymmdd[:4]
+	return c.fetchByDates(ctx, year)
+}
+
+func (c *HTTPClient) FetchUFCEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]Event, error) {
+	// Fetch per-year covering the range and merge results.
+	if len(startYYYYMMDD) < 4 || len(endYYYYMMDD) < 4 {
+		return nil, fmt.Errorf("invalid range %q-%q", startYYYYMMDD, endYYYYMMDD)
+	}
+	startYear := startYYYYMMDD[:4]
+	endYear := endYYYYMMDD[:4]
+	if startYear == endYear {
+		return c.fetchByDates(ctx, startYear)
+	}
+	var out []Event
+	// Fetch start year
+	evs, err := c.fetchByDates(ctx, startYear)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, evs...)
+	// Fetch end year (only two years expected for 30-day lookahead near year end)
+	evs, err = c.fetchByDates(ctx, endYear)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, evs...)
+	return out, nil
+}
+
+func (c *HTTPClient) fetchByDates(ctx context.Context, datesParam string) ([]Event, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(ufcEventsURL, yyyymmdd), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(ufcEventsURL, datesParam), nil)
 	if err != nil {
 		return nil, err
 	}

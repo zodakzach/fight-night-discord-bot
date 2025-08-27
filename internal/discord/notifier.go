@@ -68,12 +68,24 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 	todayYYYYMMDD := now.Format("20060102")
 	todayKey := now.Format("2006-01-02")
 
+	// ESPN API supports year-based fetch; we fetch the year and filter to today (guild TZ).
 	events, err := client.FetchUFCEvents(context.Background(), todayYYYYMMDD)
 	if err != nil {
 		log.Printf("Guild %s: fetch error: %v", guildID, err)
 		return
 	}
-	if len(events) == 0 {
+	// Filter events to those occurring today in the guild timezone.
+	var todays []espn.Event
+	for _, e := range events {
+		t, err := time.Parse(time.RFC3339, e.Date)
+		if err != nil {
+			continue
+		}
+		if t.In(loc).Format("20060102") == todayYYYYMMDD {
+			todays = append(todays, e)
+		}
+	}
+	if len(todays) == 0 {
 		return
 	}
 
@@ -82,7 +94,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, client e
 		return
 	}
 
-	msg := buildMessage(events, loc)
+	msg := buildMessage(todays, loc)
 	if _, err := s.ChannelMessageSend(channelID, msg); err != nil {
 		log.Printf("Guild %s: send message error: %v", guildID, err)
 		return

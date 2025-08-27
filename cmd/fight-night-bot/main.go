@@ -29,9 +29,9 @@ func main() {
 	defer dg.Close()
 
 	discpkg.RegisterCommands(dg, cfg.DevGuild)
-	discpkg.BindHandlers(dg, st, cfg)
 
 	espnClient := espn.NewClient(http.DefaultClient, cfg.UserAgent)
+	discpkg.BindHandlers(dg, st, cfg, espnClient)
 	discpkg.StartNotifier(dg, st, cfg, espnClient)
 
 	log.Println("Bot running. Press Ctrl+C to exit.")
