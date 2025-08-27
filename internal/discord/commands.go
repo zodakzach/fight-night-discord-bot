@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -105,8 +106,11 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 }
 
 func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+	var registerOnce sync.Once
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
+		// Ensure commands are registered after Ready when application/user ID is available.
+		registerOnce.Do(func() { RegisterCommands(s, cfg.DevGuild) })
 	})
 	s.AddHandler(func(s *discordgo.Session, ic *discordgo.InteractionCreate) {
 		handleInteraction(s, ic, st, cfg, mgr)

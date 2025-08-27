@@ -49,12 +49,12 @@ Notes
 - Tests: standard `testing` with table-driven cases
 
 ## Project Structure
-- `cmd/fight-night-bot/main.go`: Entrypoint; wires config, Discord, sources manager, scheduler.
+- `cmd/fight-night-bot/main.go`: Entrypoint; wires config, Discord, sources manager, scheduler; graceful shutdown on SIGINT/SIGTERM.
 - `internal/config`: Loads env (`.env` via `godotenv`), defaults, required vars.
 - `internal/discord`: Slash commands and daily notifier scheduling/handlers.
 - `internal/sources`: Provider interfaces and registry for org-specific event sources.
 - `internal/espn`: Scraper client used by the UFC provider.
-- `internal/state`: Guild settings and last-posted state.
+- `internal/state`: Guild settings and last-posted state (SQLite).
 - `.env` (local only) and state storage (see `internal/state`).
 
 ## Configuration
@@ -64,8 +64,8 @@ Notes
   - `GUILD_ID`: Dev guild for command registration
   - `RUN_AT`: Daily run time `HH:MM` (e.g., `16:00`)
   - `TZ`: IANA timezone (e.g., `America/New_York`)
-  - `STATE_FILE`: Path for JSON state (default `state.json`)
-  - Planned: `DB_PATH`: SQLite path (e.g., `/data/bot.db` on Fly.io)
+  - `DB_FILE`: SQLite database path (default `state.db`; Docker runtime defaults to `/data/bot.db`)
+  - Legacy: `STATE_FILE` is still accepted and maps to the same path as `DB_FILE`
 
 Example `.env`:
 ```
@@ -82,18 +82,16 @@ TZ=America/New_York
 - Tests: `go test -race -cover ./...`
 
 ## Deploy (Fly.io)
-Target: containerized deploy, with a small persistent volume for SQLite once migrated.
+Target: containerized deploy with a small persistent volume for SQLite.
 
 - Secrets:
   - `fly secrets set DISCORD_TOKEN=...`
-  - Optional: `fly secrets set TZ=America/New_York RUN_AT=16:00`
-- Volume (for SQLite, planned):
-  - `fly volumes create data --size 1`
-  - Mount at `/data` and set `DB_PATH=/data/bot.db`
-- Dockerfile: multi-stage build on Go 1.25, copy binary to a minimal runtime, run as non-root.
-- `fly.toml`: define `[env]` for `TZ`/`RUN_AT`, and `[mounts]` for `/data` once SQLite is used.
-
-Note: If you want, we can add a Dockerfile and example `fly.toml` to streamline deploys.
+  - Optional: `fly secrets set TZ=America/New_York RUN_AT=16:00 USER_AGENT='your-agent'`
+- Volume (for SQLite):
+  - `fly volumes create data --size 1 --region <region>`
+  - Mounted at `/data` via `fly.toml`; Dockerfile defaults `DB_FILE=/data/bot.db` already
+- Dockerfile: multi-stage build on Go 1.25, copy binary to a minimal runtime, run as non-root, includes time zone data.
+- `fly.toml`: define `[env]` for `TZ`/`RUN_AT` and add `[[mounts]]` for `/data`.
 
 ## Roadmap
 - Sources: add more orgs (Bellator, PFL, ONE) via providers; health checks and fallbacks per provider.

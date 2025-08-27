@@ -1,0 +1,20 @@
+# VCS
+.git
+.gitignore
+
+# Local env and state
+.env
+state.db
+state.json
+
+# Binaries and build outputs
+bin/
+dist/
+
+# Editor/OS cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
