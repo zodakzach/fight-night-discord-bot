@@ -1,138 +1,123 @@
 package state
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sync"
+	"log"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 )
 
+// Store provides persistent guild configuration and last-posted state
+// backed by a SQLite database via sqlx.
 type Store struct {
-	guilds map[string]*GuildConfig
-	mu     sync.RWMutex
+	db *sqlx.DB
 }
 
+// GuildConfig mirrors persisted guild settings for convenience where needed.
 type GuildConfig struct {
-	ChannelID  string            `json:"channel_id"`
-	Timezone   string            `json:"timezone"`
-	LastPosted map[string]string `json:"last_posted"` // sport -> YYYY-MM-DD
+	ChannelID  string
+	Timezone   string
+	LastPosted map[string]string // sport -> YYYY-MM-DD
 }
 
+// Load opens (or creates) a SQLite DB at the given path and ensures schema.
+// Fatal logs on error in order to keep the previous signature without error return.
 func Load(path string) *Store {
-	f, err := os.Open(filepath.Clean(path))
+	db, err := sqlx.Open("sqlite3", path)
 	if err != nil {
-		return &Store{guilds: make(map[string]*GuildConfig)}
+		log.Fatalf("open sqlite db %q: %v", path, err)
 	}
-	defer f.Close()
-	var tmp struct {
-		Guilds map[string]*GuildConfig `json:"guilds"`
+	// A small busy timeout to reduce lock errors under light concurrent access.
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		log.Printf("sqlite pragma busy_timeout: %v", err)
 	}
-	if err := json.NewDecoder(f).Decode(&tmp); err != nil {
-		return &Store{guilds: make(map[string]*GuildConfig)}
+	if err := ensureSchema(db); err != nil {
+		log.Fatalf("init schema: %v", err)
 	}
-	if tmp.Guilds == nil {
-		tmp.Guilds = make(map[string]*GuildConfig)
-	}
-	return &Store{guilds: tmp.Guilds}
+	return &Store{db: db}
 }
 
-func (s *Store) Save(path string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	tmpPath := path + ".tmp"
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	payload := struct {
-		Guilds map[string]*GuildConfig `json:"guilds"`
-	}{Guilds: s.guilds}
-	if err := enc.Encode(payload); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+func ensureSchema(db *sqlx.DB) error {
+	_, err := db.Exec(`
+        CREATE TABLE IF NOT EXISTS guild_settings (
+            guild_id   TEXT PRIMARY KEY,
+            channel_id TEXT,
+            timezone   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS last_posted (
+            guild_id  TEXT NOT NULL,
+            sport     TEXT NOT NULL,
+            last_date TEXT NOT NULL,
+            PRIMARY KEY (guild_id, sport)
+        );
+    `)
+	return err
 }
 
-func (s *Store) EnsureGuild(guildID string) *GuildConfig {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.guilds == nil {
-		s.guilds = make(map[string]*GuildConfig)
-	}
-	g, ok := s.guilds[guildID]
-	if !ok {
-		g = &GuildConfig{LastPosted: make(map[string]string)}
-		s.guilds[guildID] = g
-	}
-	return g
-}
+// Save is a no-op for the SQLite-backed store and exists for backward compatibility.
+func (s *Store) Save(_ string) error { return nil }
 
+// GuildIDs returns the set of guild IDs with settings persisted.
 func (s *Store) GuildIDs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	ids := make([]string, 0, len(s.guilds))
-	for id := range s.guilds {
-		ids = append(ids, id)
+	var ids []string
+	if err := s.db.Select(&ids, "SELECT guild_id FROM guild_settings"); err != nil {
+		log.Printf("state: list guild ids: %v", err)
+		return nil
 	}
 	return ids
 }
 
+// GetGuildSettings returns channel, timezone, and last-posted map for the guild.
 func (s *Store) GetGuildSettings(guildID string) (channelID, tz string, lastPosted map[string]string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok || g == nil {
-		return "", "", nil
+	// settings
+	row := s.db.QueryRowx("SELECT COALESCE(channel_id, ''), COALESCE(timezone, '') FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&channelID, &tz)
+	// last_posted
+	lastPosted = make(map[string]string)
+	rows, err := s.db.Queryx("SELECT sport, last_date FROM last_posted WHERE guild_id = ?", guildID)
+	if err != nil {
+		return channelID, tz, lastPosted
 	}
-	// Return a shallow copy of the map to avoid external mutation races
-	var lp map[string]string
-	if g.LastPosted != nil {
-		lp = make(map[string]string, len(g.LastPosted))
-		for k, v := range g.LastPosted {
-			lp[k] = v
+	defer rows.Close()
+	for rows.Next() {
+		var sport, date string
+		if err := rows.Scan(&sport, &date); err == nil {
+			lastPosted[sport] = date
 		}
 	}
-	return g.ChannelID, g.Timezone, lp
+	return channelID, tz, lastPosted
 }
 
+// UpdateGuildChannel upserts the desired channel for the guild.
 func (s *Store) UpdateGuildChannel(guildID, channelID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g := s.ensureGuildLocked(guildID)
-	g.ChannelID = channelID
+	// Ensure row then update specific column to avoid clobbering other fields.
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		log.Printf("state: ensure guild %s: %v", guildID, err)
+		return
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET channel_id = ? WHERE guild_id = ?", channelID, guildID); err != nil {
+		log.Printf("state: update channel for %s: %v", guildID, err)
+	}
 }
 
+// UpdateGuildTZ upserts the timezone for the guild.
 func (s *Store) UpdateGuildTZ(guildID, tz string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g := s.ensureGuildLocked(guildID)
-	g.Timezone = tz
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		log.Printf("state: ensure guild %s: %v", guildID, err)
+		return
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET timezone = ? WHERE guild_id = ?", tz, guildID); err != nil {
+		log.Printf("state: update tz for %s: %v", guildID, err)
+	}
 }
 
+// MarkPosted records the most recent YYYY-MM-DD date a notification was posted for a sport.
 func (s *Store) MarkPosted(guildID, sport, yyyyMmDd string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g := s.ensureGuildLocked(guildID)
-	if g.LastPosted == nil {
-		g.LastPosted = make(map[string]string)
+	if _, err := s.db.Exec(
+		"INSERT INTO last_posted (guild_id, sport, last_date) VALUES (?, ?, ?) "+
+			"ON CONFLICT(guild_id, sport) DO UPDATE SET last_date = excluded.last_date",
+		guildID, sport, yyyyMmDd,
+	); err != nil {
+		log.Printf("state: mark posted for %s/%s: %v", guildID, sport, err)
 	}
-	g.LastPosted[sport] = yyyyMmDd
-}
-
-func (s *Store) ensureGuildLocked(guildID string) *GuildConfig {
-	if s.guilds == nil {
-		s.guilds = make(map[string]*GuildConfig)
-	}
-	g, ok := s.guilds[guildID]
-	if !ok {
-		g = &GuildConfig{LastPosted: make(map[string]string)}
-		s.guilds[guildID] = g
-	}
-	return g
 }

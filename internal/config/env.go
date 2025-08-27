@@ -11,7 +11,7 @@ import (
 const (
 	DefaultTZ        = "America/New_York"
 	DefaultRunAt     = "16:00" // HH:MM process-local time for daily check
-	DefaultStateFile = "state.json"
+	DefaultStateFile = "state.db"
 )
 
 type Config struct {
@@ -32,10 +32,12 @@ func Load() Config {
 		log.Printf("godotenv: %v", err)
 	}
 
+	// Support both DB_FILE and legacy STATE_FILE for backward compatibility.
+	dbPath := getEnv("DB_FILE", getEnv("STATE_FILE", DefaultStateFile))
 	return Config{
 		Token:     mustEnv("DISCORD_TOKEN"),
 		RunAt:     getEnv("RUN_AT", DefaultRunAt),
-		StatePath: getEnv("STATE_FILE", DefaultStateFile),
+		StatePath: dbPath,
 		TZ:        getEnv("TZ", DefaultTZ),
 		DevGuild:  os.Getenv("GUILD_ID"),
 		UserAgent: getEnv("USER_AGENT", "ufc-fight-night-notifier/1.0 (contact: zach@codeezy.dev)"),
