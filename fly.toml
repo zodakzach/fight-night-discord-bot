@@ -24,3 +24,12 @@ primary_region = "iad"        # keep this consistent with where you create the v
 
 # Note: No [http_service] block — this app doesn't expose HTTP.
 # https://fly.io/docs/launch/volume-storage/
+
+# Define a service to prevent the machine from being considered idle,
+# and configure it to stay online.
+[[services]]
+  internal_port = 8080 # Port is arbitrary, as it's not exposed
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
