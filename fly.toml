@@ -1,33 +1,23 @@
-# Fly.io app configuration for Fight Night Discord Bot
+# fly.toml app configuration file generated for fight-night-discord-bot on 2025-08-28T00:51:28Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-# Change this to your app name: fly apps create <name>
-app = "fight-night-bot"
-
-# Pick a close region (e.g., iad, sjc, ord, fra)
-primary_region = "ord"
+app = 'fight-night-discord-bot'
+primary_region = 'iad'
 
 [build]
-  # Uses Dockerfile in repo; no extra config needed
 
-[env]
-  # Default timezone and daily run time (IANA + HH:MM)
-  TZ = "America/New_York"
-  RUN_AT = "16:00"
-  # Dockerfile defaults DB_FILE to /data/bot.db; override if desired
-  # DB_FILE = "/data/bot.db"
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
-[[mounts]]
-  # Create with: fly volumes create data --size 1 --region <region>
-  source = "data"
-  destination = "/data"
-
-# This app does not expose HTTP services. It runs a background bot process
-# that connects outward to Discord. No [http_service] block is required.
-
-# Secrets: set your Discord token before first deploy:
-#   fly secrets set DISCORD_TOKEN=your-bot-token
-
-# Scaling: to avoid duplicate notifications, keep a single machine/VM.
-# After deploy, enforce this with:
-#   fly scale count 1
-
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
