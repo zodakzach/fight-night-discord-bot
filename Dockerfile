@@ -36,8 +36,12 @@ RUN apk add --no-cache ca-certificates sqlite-libs tzdata \
 # Default DB path; mount a Fly volume to /data for persistence
 ENV DB_FILE=/data/bot.db
 
+# Copy binary
 COPY --from=builder /out/fight-night-bot /app/fight-night-bot
+
+# (Optional) Image-seeded data; note this is hidden when a volume is mounted at /data
 COPY --from=builder /out/data /data
+RUN chown -R app:app /data
 
 USER app
 
