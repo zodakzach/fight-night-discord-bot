@@ -1,26 +1,23 @@
-# Fly.io app configuration for a non-HTTP Discord bot with a persistent volume
+# fly.toml app configuration file generated for fight-night-discord-bot on 2025-08-28T01:13:51Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "fight-night-discord-bot"
-primary_region = "iad"        # keep this consistent with where you create the volume
+app = 'fight-night-discord-bot'
+primary_region = 'iad'
 
-# Optional env (set what you actually use)
-[env]
-  TZ = "America/New_York"
-  # DB_FILE defaults in Dockerfile to /data/bot.db; override here if needed
-  # DB_FILE = "/data/bot.db"
+[build]
 
-# Mount a Fly Volume named "data" at /data inside the VM
-[mounts]
-  source = "data"
-  destination = "/data"
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
-# VM sizing (keeps deploys idempotent)
-# Use either a preset size OR explicit cpu/memory.
-# https://fly.io/docs/launch/scale-machine/
 [[vm]]
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
-  memory = "1gb"
-
-# Note: No [http_service] block — this app doesn't expose HTTP.
-# https://fly.io/docs/launch/volume-storage/
+  memory_mb = 1024
