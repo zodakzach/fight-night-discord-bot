@@ -10,3 +10,4 @@ state.json
 *.db
 state.db
 *.sqlite
+.vscode/
