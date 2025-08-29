@@ -101,20 +101,46 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 	}
 
 	appID := s.State.User.ID
-	var (
-		res []*discordgo.ApplicationCommand
-		err error
-	)
-	if devGuild != "" {
-		res, err = s.ApplicationCommandBulkOverwrite(appID, devGuild, cmds)
-	} else {
-		res, err = s.ApplicationCommandBulkOverwrite(appID, "", cmds)
+	// Log the intent to register commands with context
+	names := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		names = append(names, c.Name)
 	}
-	if err != nil {
-		logx.Error("bulk overwrite commands", "err", err)
+	if devGuild != "" {
+		logx.Info("registering slash commands", "target", "guild", "app_id", appID, "guild_id", devGuild, "count", len(cmds), "names", names)
+		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmds)
+		if err != nil {
+			logx.Error("bulk overwrite commands", "err", err, "target", "guild", "app_id", appID, "guild_id", devGuild)
+			return
+		}
+		registered := make([]string, 0, len(res))
+		for _, c := range res {
+			registered = append(registered, c.Name)
+		}
+		logx.Info("commands registered", "target", "guild", "count", len(res), "names", registered)
+
+		// Clear global commands to avoid duplicates while developing with a dev guild.
+		logx.Info("clearing global commands due to dev guild configuration", "app_id", appID)
+		if _, err := s.ApplicationCommandBulkOverwrite(appID, "", []*discordgo.ApplicationCommand{}); err != nil {
+			logx.Warn("failed clearing global commands", "err", err, "app_id", appID)
+		} else {
+			logx.Info("global commands cleared")
+		}
 		return
 	}
-	logx.Info("commands registered", "count", len(res))
+
+	// No dev guild: register globally.
+	logx.Info("registering slash commands", "target", "global", "app_id", appID, "count", len(cmds), "names", names)
+	res, err := s.ApplicationCommandBulkOverwrite(appID, "", cmds)
+	if err != nil {
+		logx.Error("bulk overwrite commands", "err", err, "target", "global", "app_id", appID)
+		return
+	}
+	registered := make([]string, 0, len(res))
+	for _, c := range res {
+		registered = append(registered, c.Name)
+	}
+	logx.Info("commands registered", "target", "global", "count", len(res), "names", registered)
 }
 
 func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
@@ -138,6 +164,13 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		replyEphemeral(s, ic, "Please use this command in a server.")
 		return
 	}
+
+	// Trace which command was invoked and by whom
+	userID := ""
+	if ic.Member != nil && ic.Member.User != nil {
+		userID = ic.Member.User.ID
+	}
+	logx.Debug("slash command invoked", "name", data.Name, "guild_id", ic.GuildID, "channel_id", ic.ChannelID, "user_id", userID)
 
 	switch data.Name {
 	case "set-channel":

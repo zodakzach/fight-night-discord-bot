@@ -33,13 +33,17 @@ func main() {
 	}
 	dg.Identify.Intents = discordgo.IntentsGuilds
 
+	// Bind handlers BEFORE opening so we don't miss the initial Ready event.
+	mgr := sources.NewDefaultManager(http.DefaultClient, cfg.UserAgent)
+	discpkg.BindHandlers(dg, st, cfg, mgr)
+
+	logx.Info("opening discord gateway")
 	if err := dg.Open(); err != nil {
 		logx.Fatal("discord gateway open failed", "err", err)
 	}
 	defer dg.Close()
+	logx.Info("discord gateway opened")
 
-	mgr := sources.NewDefaultManager(http.DefaultClient, cfg.UserAgent)
-	discpkg.BindHandlers(dg, st, cfg, mgr)
 	discpkg.StartNotifier(dg, st, cfg, mgr)
 
 	// Graceful shutdown on SIGINT/SIGTERM so Discord session closes cleanly.

@@ -111,13 +111,10 @@ Target: containerized deploy with a small persistent volume for SQLite.
 
 ## Roadmap
 - Sources: add more orgs (Bellator, PFL, ONE) via providers; health checks and fallbacks per provider.
-- Notifications: per-guild `RUN_AT`; per-org toggles; improved de-duplication by event ID and windowing.
 - Messaging: rich embeds (title, banner, links), start-time summaries, prelim/main-card breakdowns.
+- Announcements: option to send posts as Discord announcements (publish in news channels) rather than only regular messages; add a toggle and required permission checks.
 - Reliability: HTTP retries with backoff, rate limiting, basic response caching, stricter time parsing.
-- Scheduling: DST edge-case tests and fixes; year-boundary range correctness; resilience against clock drift.
-- Ops/CI: Dockerfile, GitHub Actions for fmt/vet/test, release artifacts; lightweight observability/structured logs.
-  - Logs: JSON-structured via Go `slog`; compatible with Fly.io log ingestion. Control verbosity with `LOG_LEVEL`.
-- Security: least-privilege bot permissions, secret handling guidance, user-agent customization knob.
+- Scheduling: hourly top-of-hour tick is in place; add DST edge-case tests/fixes, year-boundary range correctness, and resilience against clock drift.
 
 ## Contributing
 - Try it in a dev guild and share behavior logs or screenshots.
