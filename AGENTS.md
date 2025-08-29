@@ -6,6 +6,7 @@
 - `internal/discord`: Slash commands (`/notify`) and daily notifier scheduling/handlers.
 - `internal/espn`: Thin HTTP client for ESPN UFC scoreboard API.
 - `internal/state`: SQLite-backed guild settings and last-posted state.
+- `internal/logx`: Structured JSON logging wrapper around `log/slog`.
 - `.env` (local only) and state storage (SQLite database; see `DB_FILE`).
 
 ## Build, Run, and Test
@@ -18,7 +19,10 @@
 - Go formatting: run `go fmt ./...` before pushing. Prefer idiomatic Go, clear error handling (`if err != nil { ... }`).
 - Packages/files: lowercase, short names (e.g., `state`, `notifier.go`).
 - Exports: export only APIs needed by other packages; keep internals unexported.
-- Logs: use `log.Printf` for operational messages; avoid panics outside `main`.
+- Logs: use `internal/logx` (slog-based JSON). Call `logx.Init("fight-night-bot")` in `main`.
+  - Levels via `LOG_LEVEL` (`debug|info|warn|error`); default `info`.
+  - Use structured fields: `logx.Info("msg", "key", value)`; prefer `Debug` for noisy logs.
+  - Use `logx.Fatal` only for startup-critical failures; avoid panics outside `main`.
 - Time: use IANA TZ names; helpers already parse `HH:MM` (`parseHHMM`).
 
 ## Testing Guidelines
@@ -33,7 +37,7 @@
 - Checks: ensure `go fmt`, `go vet`, and tests pass; document env vars touched.
 
 ## Security & Configuration
-- Required env: `DISCORD_TOKEN`. Optional: `GUILD_ID` (dev guild), `RUN_AT` (HH:MM), `TZ` (IANA), `DB_FILE`, `USER_AGENT`.
+- Required env: `DISCORD_TOKEN`. Optional: `GUILD_ID` (dev guild), `RUN_AT` (HH:MM), `TZ` (IANA), `DB_FILE`, `USER_AGENT`, `LOG_LEVEL`.
 - Example `.env`:
   
   ```

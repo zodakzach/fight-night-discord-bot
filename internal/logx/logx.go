@@ -8,6 +8,17 @@ import (
 
 var defaultLogger *slog.Logger
 
+// Ensure a safe default logger is available even if Init isn't called.
+// This prevents nil-pointer panics during tests or early package use.
+func init() {
+	if defaultLogger == nil {
+		h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+		l := slog.New(h)
+		defaultLogger = l
+		slog.SetDefault(l)
+	}
+}
+
 // Init configures a JSON structured logger suitable for Fly.io log ingestion.
 // It reads LOG_LEVEL (debug, info, warn, error) and sets a global default.
 func Init(service string) {

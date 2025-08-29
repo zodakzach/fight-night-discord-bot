@@ -24,6 +24,7 @@ Representative commands (names/args may vary slightly based on current implement
 - `/set-channel channel:<#channel>`: Pick the channel for notifications.
 - `/notify on|off`: Enable or disable fight-night posts for this guild (requires org set; default is off).
 - `/next-event`: Show the next event for the selected org.
+- `/set-run-hour hour:<0-23>`: Set the daily notification hour (guild timezone).
 - `/set-tz tz:<Region/City>`: Set the guild timezone (IANA name).
 - `/status`: Show current settings for this guild.
 - `/help`: Show available commands and usage.
@@ -36,7 +37,7 @@ Representative commands (names/args may vary slightly based on current implement
 - Verify: run `/next-event` to see the next event for your org.
 
 Notes
-- Posts run daily at `RUN_AT` in your configured timezone; event-day posts only.
+- Posts run daily at the configured hour (per guild via `/set-run-hour`, default from `RUN_AT`) in your guild's timezone; event-day posts only. Minutes are ignored.
 - You must set an org before enabling notifications.
 
 ## Tech Stack
@@ -76,7 +77,7 @@ Adding a migration:
   - `DISCORD_TOKEN`: Discord bot token
 - Optional:
   - `GUILD_ID`: Dev guild for command registration
-  - `RUN_AT`: Daily run time `HH:MM` (e.g., `16:00`)
+  - `RUN_AT`: Daily run time `HH:MM` (e.g., `16:00`). Only the hour is used.
   - `TZ`: IANA timezone (e.g., `America/New_York`)
   - `DB_FILE`: SQLite database path (default `state.db`; Docker runtime defaults to `/data/bot.db`)
   - `LOG_LEVEL`: `debug` | `info` | `warn` | `error` (default `info`)

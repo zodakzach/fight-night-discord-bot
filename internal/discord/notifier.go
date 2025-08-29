@@ -16,41 +16,63 @@ import (
 )
 
 func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
-	loc, err := time.LoadLocation(cfg.TZ)
-	if err != nil {
-		logx.Warn("invalid TZ; using local", "tz", cfg.TZ, "err", err)
-		loc = time.Local
-	}
+	// Run on an hourly schedule and only notify guilds whose configured run hour
+	// matches the current hour in their timezone. This supports per-guild overrides
+	// while keeping the env RUN_AT as the default (minutes ignored).
 	go func() {
 		time.Sleep(2 * time.Second)
-		runNotifierOnce(s, st, mgr, cfg)
-		scheduleDaily(cfg.RunAt, loc, func() { runNotifierOnce(s, st, mgr, cfg) })
+		runNotifierTick(s, st, mgr, cfg)
+		scheduleHourly(func() { runNotifierTick(s, st, mgr, cfg) })
 	}()
 }
 
-func scheduleDaily(hhmm string, loc *time.Location, fn func()) {
-	h, m, err := parseHHMM(hhmm)
-	if err != nil {
-		logx.Warn("invalid RUN_AT; using default", "run_at", hhmm, "err", err)
-		h, m = 16, 0
-	}
-	for {
-		now := time.Now().In(loc)
-		next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
-		if !next.After(now) {
-			next = next.Add(24 * time.Hour)
+// runNotifierTick loops all guilds and notifies only those matching the configured run time.
+func runNotifierTick(s *discordgo.Session, st *state.Store, mgr *sources.Manager, cfg config.Config) {
+	now := time.Now()
+	for _, gid := range st.GuildIDs() {
+		if shouldRunNow(st, gid, cfg, now) {
+			notifyGuild(s, st, gid, mgr, cfg)
 		}
-		delay := time.Until(next)
-		logx.Info("next check scheduled", "at", next.Format(time.RFC1123), "delay", delay.Truncate(time.Second).String())
-		timer := time.NewTimer(delay)
-		<-timer.C
-		fn()
 	}
 }
 
-func runNotifierOnce(s *discordgo.Session, st *state.Store, mgr *sources.Manager, cfg config.Config) {
-	for _, gid := range st.GuildIDs() {
-		notifyGuild(s, st, gid, mgr, cfg)
+// shouldRunNow returns true if the given moment's hour matches the guild's configured
+// hour (guild override via state, falling back to cfg.RunAt) in the guild's timezone
+// (falling back to cfg.TZ when unset/invalid).
+func shouldRunNow(st *state.Store, guildID string, cfg config.Config, instant time.Time) bool {
+	// Determine timezone
+	_, tzName, _ := st.GetGuildSettings(guildID)
+	if tzName == "" {
+		tzName = cfg.TZ
+	}
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		loc = time.Local
+	}
+	// Determine run hour
+	hour := st.GetGuildRunHour(guildID)
+	if hour < 0 {
+		// Fall back to env default RUN_AT
+		if hh, _, err := parseHHMM(cfg.RunAt); err == nil {
+			hour = hh
+		} else {
+			// ultimate fallback
+			hour, _ = strconv.Atoi(strings.Split(config.DefaultRunAt, ":")[0])
+		}
+	}
+	tlocal := instant.In(loc)
+	return tlocal.Hour() == hour
+}
+
+// scheduleHourly invokes fn at the start of each UTC hour (which aligns to :00 in all timezones).
+func scheduleHourly(fn func()) {
+	for {
+		now := time.Now()
+		next := now.Truncate(time.Hour).Add(time.Hour)
+		delay := time.Until(next)
+		timer := time.NewTimer(delay)
+		<-timer.C
+		fn()
 	}
 }
 

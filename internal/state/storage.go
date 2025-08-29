@@ -45,7 +45,8 @@ func ensureSchema(db *sqlx.DB) error {
             channel_id TEXT,
             timezone   TEXT,
             enabled    INTEGER,
-            org        TEXT
+            org        TEXT,
+            run_hour   INTEGER
         );
         CREATE TABLE IF NOT EXISTS last_posted (
             guild_id  TEXT NOT NULL,
@@ -63,6 +64,9 @@ func ensureSchema(db *sqlx.DB) error {
 		// ignore
 	}
 	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN org TEXT"); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN run_hour INTEGER"); err != nil {
 		// ignore
 	}
 	return nil
@@ -191,4 +195,29 @@ func (s *Store) HasGuildOrg(guildID string) bool {
 	row := s.db.QueryRowx("SELECT org FROM guild_settings WHERE guild_id = ?", guildID)
 	_ = row.Scan(&org)
 	return org.Valid && org.String != ""
+}
+
+// UpdateGuildRunAt upserts the run-at time (HH:MM) for the guild.
+// (run_at removed) Per-guild minute precision is not stored; use env RUN_AT for default.
+
+// UpdateGuildRunHour upserts the run hour (0-23) for the guild.
+func (s *Store) UpdateGuildRunHour(guildID string, hour int) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
+		return
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET run_hour = ? WHERE guild_id = ?", hour, guildID); err != nil {
+		logx.Error("state: update run_hour", "guild_id", guildID, "err", err)
+	}
+}
+
+// GetGuildRunHour returns the configured hour (0-23) or -1 when unset.
+func (s *Store) GetGuildRunHour(guildID string) int {
+	var hour sql.NullInt32
+	row := s.db.QueryRowx("SELECT run_hour FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&hour)
+	if !hour.Valid {
+		return -1
+	}
+	return int(hour.Int32)
 }

@@ -62,6 +62,18 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 			},
 		},
 		{
+			Name:        "set-run-hour",
+			Description: "Set daily notification hour (0-23)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "hour",
+					Description: "Hour of day (0-23)",
+					Required:    true,
+				},
+			},
+		},
+		{
 			Name:        "status",
 			Description: "Show current bot settings for this guild",
 		},
@@ -134,6 +146,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		handleNotifyToggle(s, ic, st, cfg)
 	case "set-tz":
 		handleSetTZ(s, ic, st, cfg)
+	case "set-run-hour":
+		handleSetRunHour(s, ic, st, cfg)
 	case "set-org":
 		handleSetOrg(s, ic, st, cfg)
 	case "status":
@@ -254,6 +268,34 @@ func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *stat
 	replyEphemeral(s, ic, "Timezone updated to "+tz)
 }
 
+func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /set-run-hour hour:<0-23>")
+		return
+	}
+	hour := int(opts[0].IntValue())
+	if hour < 0 || hour > 23 {
+		replyEphemeral(s, ic, "Invalid hour. Use 0-23 (e.g., 16)")
+		return
+	}
+
+	// Permission check similar to set-channel
+	perms, err := s.UserChannelPermissions(ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if perms&discordgo.PermissionManageChannels == 0 && perms&discordgo.PermissionAdministrator == 0 {
+		replyEphemeral(s, ic, "You need Manage Channels permission to set the run hour.")
+		return
+	}
+
+	st.UpdateGuildRunHour(ic.GuildID, hour)
+	_ = st.Save(cfg.StatePath)
+	replyEphemeral(s, ic, fmt.Sprintf("Daily run hour updated to %02d:00 (guild timezone)", hour))
+}
+
 func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
 	ch, tz, _ := st.GetGuildSettings(ic.GuildID)
 	if ch == "" {
@@ -270,9 +312,13 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	if st.GetGuildNotifyEnabled(ic.GuildID) {
 		notify = "on"
 	}
+	runAt := cfg.RunAt
+	if h := st.GetGuildRunHour(ic.GuildID); h >= 0 {
+		runAt = fmt.Sprintf("%02d:00", h)
+	}
 	msg := fmt.Sprintf(
 		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nRun time: %s",
-		ch, tz, orgDisplay, notify, cfg.RunAt,
+		ch, tz, orgDisplay, notify, runAt,
 	)
 	replyEphemeral(s, ic, msg)
 }
@@ -282,6 +328,7 @@ func handleHelp(s *discordgo.Session, ic *discordgo.InteractionCreate) {
 		"- /set-org org:<ufc> — Pick your org. Required before enabling notifications.\n" +
 		"- /set-channel [channel:#channel] — Choose post channel.\n" +
 		"- /notify state:<on|off> — Toggle notifications (requires org set).\n" +
+		"- /set-run-hour hour:<0-23> — Set daily run hour.\n" +
 		"- /set-tz tz:<Region/City> — Set timezone (IANA).\n" +
 		"- /status — Show current settings.\n" +
 		"- /next-event — Show the next event for your org."
