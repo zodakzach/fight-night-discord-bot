@@ -11,12 +11,18 @@ import (
 
 	cfgpkg "github.com/zodakzach/fight-night-discord-bot/internal/config"
 	discpkg "github.com/zodakzach/fight-night-discord-bot/internal/discord"
+	"github.com/zodakzach/fight-night-discord-bot/internal/migrate"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
 func main() {
 	cfg := cfgpkg.Load()
+
+	// Apply DB migrations at startup to keep schema up-to-date.
+	if err := migrate.Run(cfg.StatePath); err != nil {
+		log.Fatalf("run migrations: %v", err)
+	}
 
 	st := state.Load(cfg.StatePath)
 

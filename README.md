@@ -57,6 +57,20 @@ Notes
 - `internal/state`: Guild settings and last-posted state (SQLite).
 - `.env` (local only) and state storage (see `internal/state`).
 
+## Database Migrations
+
+- Engine: SQLite via CGO (`github.com/mattn/go-sqlite3`).
+- Migrations: `golang-migrate` with embedded SQL, auto-run at boot.
+  - Files live under `internal/migrate/migrations/` and are embedded into the binary.
+  - On application startup, migrations run automatically before the DB is used.
+  - This works well on Fly.io where `release_command` cannot access the volume.
+
+Adding a migration:
+
+- Create two files with the next sequence number (e.g., `0002_add_new_table.up.sql` and `0002_add_new_table.down.sql`) in `internal/migrate/migrations/`.
+- Keep migrations deterministic and forward-only; use `IF NOT EXISTS` only when bootstrapping compatibility is required.
+- Build and run the bot; it will apply the new migration on startup.
+
 ## Configuration
 - Required:
   - `DISCORD_TOKEN`: Discord bot token

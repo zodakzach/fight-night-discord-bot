@@ -9,10 +9,10 @@ import (
 )
 
 const (
-    DefaultTZ    = "America/New_York"
-    DefaultRunAt = "16:00" // HH:MM process-local time for daily check
-    // Default SQLite DB file path for persistent state
-    DefaultDBFile = "state.db"
+	DefaultTZ    = "America/New_York"
+	DefaultRunAt = "16:00" // HH:MM process-local time for daily check
+	// Default SQLite DB file path for persistent state
+	DefaultDBFile = "state.db"
 )
 
 type Config struct {
@@ -33,8 +33,8 @@ func Load() Config {
 		log.Printf("godotenv: %v", err)
 	}
 
-    // Use DB_FILE, defaulting to a local SQLite file.
-    dbPath := getEnv("DB_FILE", DefaultDBFile)
+	// Use DB_FILE, defaulting to a local SQLite file.
+	dbPath := getEnv("DB_FILE", DefaultDBFile)
 	return Config{
 		Token:     mustEnv("DISCORD_TOKEN"),
 		RunAt:     getEnv("RUN_AT", DefaultRunAt),
