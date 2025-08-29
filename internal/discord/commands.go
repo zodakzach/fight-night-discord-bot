@@ -425,8 +425,10 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 
 	nowUTC := time.Now().UTC()
 	nowLocal := time.Now().In(loc)
-	start := nowLocal.Format("20060102")
-	end := nowLocal.AddDate(0, 0, 30).Format("20060102")
+	// Query provider by UTC date keys and include yesterday to cover
+	// events that started late last night UTC but are "today" locally.
+	start := nowUTC.AddDate(0, 0, -1).Format("20060102")
+	end := nowUTC.AddDate(0, 0, 30).Format("20060102")
 
 	events, err := provider.FetchEventsRange(context.Background(), start, end)
 	if err != nil {
@@ -440,6 +442,10 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	var todayAt time.Time
 	var futureName string
 	var futureAt time.Time
+	// Track the most recent already-started event in case there is
+	// nothing else today and no upcoming future within the window.
+	var recentName string
+	var recentAt time.Time
 
 	for _, e := range events {
 		t, err := parseAPITime(e.Date /* or e.StartDate if that’s the field */)
@@ -461,6 +467,11 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 			if futureAt.IsZero() || t.Before(futureAt) {
 				futureAt, futureName = t, name
 			}
+			continue
+		}
+		// Track the most recent past event as a fallback (e.g., started recently)
+		if recentAt.IsZero() || t.After(recentAt) {
+			recentAt, recentName = t, name
 		}
 	}
 
@@ -472,6 +483,13 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		nextAt, nextName = futureAt, futureName
 	}
 
+	if nextAt.IsZero() {
+		// If nothing today or in the future, prefer a recently-started
+		// event within the last 12 hours so users still get a useful answer.
+		if !recentAt.IsZero() && nowUTC.Sub(recentAt) <= 12*time.Hour {
+			nextAt, nextName = recentAt, recentName
+		}
+	}
 	if nextAt.IsZero() {
 		_ = editInteractionResponse(s, ic, "No upcoming "+strings.ToUpper(org)+" events found in the next 30 days.")
 		return
