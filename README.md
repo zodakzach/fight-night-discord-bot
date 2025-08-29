@@ -65,7 +65,6 @@ Notes
   - `RUN_AT`: Daily run time `HH:MM` (e.g., `16:00`)
   - `TZ`: IANA timezone (e.g., `America/New_York`)
   - `DB_FILE`: SQLite database path (default `state.db`; Docker runtime defaults to `/data/bot.db`)
-  - Legacy: `STATE_FILE` is still accepted and maps to the same path as `DB_FILE`
 
 Example `.env`:
 ```

@@ -1,13 +1,14 @@
 .DS_Store
 .env
 codegrab-output.md
-state.json
 # build outputs
 /bin/
 *.log
 
 # local data
 *.db
-state.db
 *.sqlite
 .vscode/
+state.db
+.gomod
+.gocache

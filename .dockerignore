@@ -5,7 +5,6 @@
 # Local env and state
 .env
 state.db
-state.json
 
 # Binaries and build outputs
 bin/
@@ -17,4 +16,3 @@ dist/
 .vscode/
 *.swp
 *.swo
-

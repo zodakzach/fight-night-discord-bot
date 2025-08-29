@@ -5,8 +5,8 @@
 - `internal/config`: Loads env (`.env` via `godotenv`), defaults, and required vars.
 - `internal/discord`: Slash commands (`/notify`) and daily notifier scheduling/handlers.
 - `internal/espn`: Thin HTTP client for ESPN UFC scoreboard API.
-- `internal/state`: JSON-backed guild settings and last-posted state.
-- `.env` (local only) and `state.json` (runtime state; default path is `state.json`).
+- `internal/state`: SQLite-backed guild settings and last-posted state.
+- `.env` (local only) and state storage (SQLite database; see `DB_FILE`).
 
 ## Build, Run, and Test
 - Run locally: `go run ./cmd/fight-night-bot` (requires `DISCORD_TOKEN`).
@@ -33,7 +33,7 @@
 - Checks: ensure `go fmt`, `go vet`, and tests pass; document env vars touched.
 
 ## Security & Configuration
-- Required env: `DISCORD_TOKEN`. Optional: `GUILD_ID` (dev guild), `RUN_AT` (HH:MM), `TZ` (IANA), `STATE_FILE`, `USER_AGENT`.
+- Required env: `DISCORD_TOKEN`. Optional: `GUILD_ID` (dev guild), `RUN_AT` (HH:MM), `TZ` (IANA), `DB_FILE`, `USER_AGENT`.
 - Example `.env`:
   
   ```
@@ -42,5 +42,4 @@
   RUN_AT=16:00
   TZ=America/New_York
   ```
-- Do not commit secrets. Prefer overriding `STATE_FILE` in local dev if you want to keep state out of git.
-
+- Do not commit secrets. Use `DB_FILE` to point to a local SQLite path that is not tracked by git.
