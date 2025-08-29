@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,29 +10,31 @@ import (
 
 	cfgpkg "github.com/zodakzach/fight-night-discord-bot/internal/config"
 	discpkg "github.com/zodakzach/fight-night-discord-bot/internal/discord"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/migrate"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
 func main() {
+	logx.Init("fight-night-bot")
 	cfg := cfgpkg.Load()
 
 	// Apply DB migrations at startup to keep schema up-to-date.
 	if err := migrate.Run(cfg.StatePath); err != nil {
-		log.Fatalf("run migrations: %v", err)
+		logx.Fatal("migrate.run failed", "err", err, "db", cfg.StatePath)
 	}
 
 	st := state.Load(cfg.StatePath)
 
 	dg, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
-		log.Fatalf("discord session: %v", err)
+		logx.Fatal("discord session init failed", "err", err)
 	}
 	dg.Identify.Intents = discordgo.IntentsGuilds
 
 	if err := dg.Open(); err != nil {
-		log.Fatalf("open gateway: %v", err)
+		logx.Fatal("discord gateway open failed", "err", err)
 	}
 	defer dg.Close()
 
@@ -42,9 +43,9 @@ func main() {
 	discpkg.StartNotifier(dg, st, cfg, mgr)
 
 	// Graceful shutdown on SIGINT/SIGTERM so Discord session closes cleanly.
-	log.Println("Bot running. Waiting for shutdown signal (Ctrl+C or SIGTERM)...")
+	logx.Info("bot running; waiting for shutdown signal")
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
-	log.Println("Shutdown signal received; closing Discord session...")
+	logx.Info("shutdown signal received; closing session")
 }

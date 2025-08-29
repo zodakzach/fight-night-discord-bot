@@ -1,11 +1,11 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 )
 
 const (
@@ -29,8 +29,8 @@ func Load() Config {
 	// Load environment variables from a .env file if present.
 	// Non-fatal: proceed if the file is missing so production env vars still work.
 	if err := godotenv.Load(); err != nil {
-		// Only log at info level to avoid failing when no .env is provided.
-		log.Printf("godotenv: %v", err)
+		// Informational only when missing; production often omits .env.
+		logx.Debug("godotenv load", "err", err)
 	}
 
 	// Use DB_FILE, defaulting to a local SQLite file.
@@ -56,7 +56,7 @@ func getEnv(k, def string) string {
 func mustEnv(k string) string {
 	v := os.Getenv(k)
 	if strings.TrimSpace(v) == "" {
-		log.Fatalf("Missing env var: %s", k)
+		logx.Fatal("missing required env var", "key", k)
 	}
 	return v
 }

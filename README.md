@@ -79,6 +79,7 @@ Adding a migration:
   - `RUN_AT`: Daily run time `HH:MM` (e.g., `16:00`)
   - `TZ`: IANA timezone (e.g., `America/New_York`)
   - `DB_FILE`: SQLite database path (default `state.db`; Docker runtime defaults to `/data/bot.db`)
+  - `LOG_LEVEL`: `debug` | `info` | `warn` | `error` (default `info`)
 
 Example `.env`:
 ```
@@ -86,6 +87,7 @@ DISCORD_TOKEN=your-bot-token
 GUILD_ID=123456789012345678
 RUN_AT=16:00
 TZ=America/New_York
+LOG_LEVEL=info
 ```
 
 ## Build, Run, Test
@@ -113,6 +115,7 @@ Target: containerized deploy with a small persistent volume for SQLite.
 - Reliability: HTTP retries with backoff, rate limiting, basic response caching, stricter time parsing.
 - Scheduling: DST edge-case tests and fixes; year-boundary range correctness; resilience against clock drift.
 - Ops/CI: Dockerfile, GitHub Actions for fmt/vet/test, release artifacts; lightweight observability/structured logs.
+  - Logs: JSON-structured via Go `slog`; compatible with Fly.io log ingestion. Control verbosity with `LOG_LEVEL`.
 - Security: least-privilege bot permissions, secret handling guidance, user-agent customization knob.
 
 ## Contributing

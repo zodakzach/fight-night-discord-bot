@@ -2,10 +2,10 @@ package state
 
 import (
 	"database/sql"
-	"log"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 )
 
 // Store provides persistent guild configuration and last-posted state
@@ -26,14 +26,14 @@ type GuildConfig struct {
 func Load(path string) *Store {
 	db, err := sqlx.Open("sqlite3", path)
 	if err != nil {
-		log.Fatalf("open sqlite db %q: %v", path, err)
+		logx.Fatal("open sqlite db", "path", path, "err", err)
 	}
 	// A small busy timeout to reduce lock errors under light concurrent access.
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		log.Printf("sqlite pragma busy_timeout: %v", err)
+		logx.Warn("sqlite pragma busy_timeout", "err", err)
 	}
 	if err := ensureSchema(db); err != nil {
-		log.Fatalf("init schema: %v", err)
+		logx.Fatal("init schema", "err", err)
 	}
 	return &Store{db: db}
 }
@@ -75,7 +75,7 @@ func (s *Store) Save(_ string) error { return nil }
 func (s *Store) GuildIDs() []string {
 	var ids []string
 	if err := s.db.Select(&ids, "SELECT guild_id FROM guild_settings"); err != nil {
-		log.Printf("state: list guild ids: %v", err)
+		logx.Error("state: list guild ids", "err", err)
 		return nil
 	}
 	return ids
@@ -106,22 +106,22 @@ func (s *Store) GetGuildSettings(guildID string) (channelID, tz string, lastPost
 func (s *Store) UpdateGuildChannel(guildID, channelID string) {
 	// Ensure row then update specific column to avoid clobbering other fields.
 	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
-		log.Printf("state: ensure guild %s: %v", guildID, err)
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
 		return
 	}
 	if _, err := s.db.Exec("UPDATE guild_settings SET channel_id = ? WHERE guild_id = ?", channelID, guildID); err != nil {
-		log.Printf("state: update channel for %s: %v", guildID, err)
+		logx.Error("state: update channel", "guild_id", guildID, "err", err)
 	}
 }
 
 // UpdateGuildTZ upserts the timezone for the guild.
 func (s *Store) UpdateGuildTZ(guildID, tz string) {
 	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
-		log.Printf("state: ensure guild %s: %v", guildID, err)
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
 		return
 	}
 	if _, err := s.db.Exec("UPDATE guild_settings SET timezone = ? WHERE guild_id = ?", tz, guildID); err != nil {
-		log.Printf("state: update tz for %s: %v", guildID, err)
+		logx.Error("state: update timezone", "guild_id", guildID, "err", err)
 	}
 }
 
@@ -132,14 +132,14 @@ func (s *Store) MarkPosted(guildID, sport, yyyyMmDd string) {
 			"ON CONFLICT(guild_id, sport) DO UPDATE SET last_date = excluded.last_date",
 		guildID, sport, yyyyMmDd,
 	); err != nil {
-		log.Printf("state: mark posted for %s/%s: %v", guildID, sport, err)
+		logx.Error("state: mark posted", "guild_id", guildID, "sport", sport, "err", err)
 	}
 }
 
 // UpdateGuildNotifyEnabled upserts the notify enabled flag for the guild.
 func (s *Store) UpdateGuildNotifyEnabled(guildID string, enabled bool) {
 	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
-		log.Printf("state: ensure guild %s: %v", guildID, err)
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
 		return
 	}
 	val := 0
@@ -147,7 +147,7 @@ func (s *Store) UpdateGuildNotifyEnabled(guildID string, enabled bool) {
 		val = 1
 	}
 	if _, err := s.db.Exec("UPDATE guild_settings SET enabled = ? WHERE guild_id = ?", val, guildID); err != nil {
-		log.Printf("state: update enabled for %s: %v", guildID, err)
+		logx.Error("state: update enabled", "guild_id", guildID, "err", err)
 	}
 }
 
@@ -166,11 +166,11 @@ func (s *Store) GetGuildNotifyEnabled(guildID string) bool {
 // UpdateGuildOrg upserts the org for the guild.
 func (s *Store) UpdateGuildOrg(guildID, org string) {
 	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
-		log.Printf("state: ensure guild %s: %v", guildID, err)
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
 		return
 	}
 	if _, err := s.db.Exec("UPDATE guild_settings SET org = ? WHERE guild_id = ?", org, guildID); err != nil {
-		log.Printf("state: update org for %s: %v", guildID, err)
+		logx.Error("state: update org", "guild_id", guildID, "err", err)
 	}
 }
 

@@ -3,13 +3,13 @@ package migrate
 import (
 	"embed"
 	"fmt"
-	"log"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	iofs "github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 )
 
 // Embed all SQL migration files.
@@ -29,7 +29,7 @@ func Run(path string) error {
 
 	// Keep consistent with the rest of the app; non-fatal if it fails.
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		log.Printf("sqlite pragma busy_timeout (migrate): %v", err)
+		logx.Warn("sqlite pragma busy_timeout (migrate)", "err", err)
 	}
 
 	// Database driver instance for golang-migrate.

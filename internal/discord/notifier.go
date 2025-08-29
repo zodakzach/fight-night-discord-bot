@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
@@ -18,7 +18,7 @@ import (
 func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	loc, err := time.LoadLocation(cfg.TZ)
 	if err != nil {
-		log.Printf("Invalid TZ %q; using local: %v", cfg.TZ, err)
+		logx.Warn("invalid TZ; using local", "tz", cfg.TZ, "err", err)
 		loc = time.Local
 	}
 	go func() {
@@ -31,7 +31,7 @@ func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, mgr
 func scheduleDaily(hhmm string, loc *time.Location, fn func()) {
 	h, m, err := parseHHMM(hhmm)
 	if err != nil {
-		log.Printf("Invalid RUN_AT %q: %v; using 16:00", hhmm, err)
+		logx.Warn("invalid RUN_AT; using default", "run_at", hhmm, "err", err)
 		h, m = 16, 0
 	}
 	for {
@@ -41,7 +41,7 @@ func scheduleDaily(hhmm string, loc *time.Location, fn func()) {
 			next = next.Add(24 * time.Hour)
 		}
 		delay := time.Until(next)
-		log.Printf("Next check at %s (%s from now)", next.Format(time.RFC1123), delay.Truncate(time.Second))
+		logx.Info("next check scheduled", "at", next.Format(time.RFC1123), "delay", delay.Truncate(time.Second).String())
 		timer := time.NewTimer(delay)
 		<-timer.C
 		fn()
@@ -72,7 +72,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	org := st.GetGuildOrg(guildID)
 	provider, ok := mgr.Provider(org)
 	if !ok {
-		log.Printf("Guild %s: no provider for org %q", guildID, org)
+		logx.Warn("no provider for org", "guild_id", guildID, "org", org)
 		return
 	}
 
@@ -87,7 +87,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	// Fetch events for today and filter to those occurring today in the guild timezone.
 	events, err := provider.FetchEventsRange(context.Background(), todayYYYYMMDD, todayYYYYMMDD)
 	if err != nil {
-		log.Printf("Guild %s: fetch error: %v", guildID, err)
+		logx.Error("events fetch error", "guild_id", guildID, "err", err)
 		return
 	}
 	var todays []sources.Event
@@ -111,7 +111,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 
 	msg := buildMessage(org, todays, loc)
 	if _, err := sendChannelMessage(s, channelID, msg); err != nil {
-		log.Printf("Guild %s: send message error: %v", guildID, err)
+		logx.Error("send message error", "guild_id", guildID, "err", err)
 		return
 	}
 

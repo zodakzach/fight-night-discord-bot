@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
@@ -99,16 +99,16 @@ func RegisterCommands(s *discordgo.Session, devGuild string) {
 		res, err = s.ApplicationCommandBulkOverwrite(appID, "", cmds)
 	}
 	if err != nil {
-		log.Printf("bulk overwrite commands: %v", err)
+		logx.Error("bulk overwrite commands", "err", err)
 		return
 	}
-	log.Printf("registered %d commands via bulk overwrite", len(res))
+	logx.Info("commands registered", "count", len(res))
 }
 
 func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	var registerOnce sync.Once
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
+		logx.Info("discord ready", "user", r.User.Username, "discriminator", r.User.Discriminator)
 		// Ensure commands are registered after Ready when application/user ID is available.
 		registerOnce.Do(func() { RegisterCommands(s, cfg.DevGuild) })
 	})
