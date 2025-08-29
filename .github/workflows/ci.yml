@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+
+      - name: Verify formatting (gofmt)
+        run: |
+          fmtout=$(gofmt -s -l .)
+          if [ -n "$fmtout" ]; then
+            echo "The following files are not gofmt-formatted:" >&2
+            echo "$fmtout" >&2
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -cover ./...
+
+      - name: Build
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          mkdir -p bin
+          go build -trimpath -ldflags "-s -w" -o bin/fight-night-bot ./cmd/fight-night-bot
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fight-night-bot-linux-amd64
+          path: bin/fight-night-bot
+          if-no-files-found: error
+
