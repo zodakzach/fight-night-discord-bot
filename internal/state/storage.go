@@ -72,9 +72,6 @@ func ensureSchema(db *sqlx.DB) error {
 	return nil
 }
 
-// Save is a no-op for the SQLite-backed store and exists for backward compatibility.
-func (s *Store) Save(_ string) error { return nil }
-
 // GuildIDs returns the set of guild IDs with settings persisted.
 func (s *Store) GuildIDs() []string {
 	var ids []string

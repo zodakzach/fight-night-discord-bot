@@ -214,7 +214,6 @@ func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	}
 
 	st.UpdateGuildChannel(ic.GuildID, channelID)
-	_ = st.Save(cfg.StatePath)
 
 	replyEphemeral(s, ic, "Announcement channel updated.")
 }
@@ -245,11 +244,9 @@ func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 			return
 		}
 		st.UpdateGuildNotifyEnabled(ic.GuildID, true)
-		_ = st.Save(cfg.StatePath)
 		replyEphemeral(s, ic, "Notifications enabled.")
 	case "off":
 		st.UpdateGuildNotifyEnabled(ic.GuildID, false)
-		_ = st.Save(cfg.StatePath)
 		replyEphemeral(s, ic, "Notifications disabled.")
 	default:
 		replyEphemeral(s, ic, "Invalid state. Use on or off.")
@@ -278,7 +275,6 @@ func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	switch org {
 	case "ufc":
 		st.UpdateGuildOrg(ic.GuildID, org)
-		_ = st.Save(cfg.StatePath)
 		replyEphemeral(s, ic, "Organization set to UFC.")
 	default:
 		replyEphemeral(s, ic, "Unsupported org. Currently only 'ufc' is available.")
@@ -297,7 +293,6 @@ func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *stat
 		return
 	}
 	st.UpdateGuildTZ(ic.GuildID, tz)
-	_ = st.Save(cfg.StatePath)
 	replyEphemeral(s, ic, "Timezone updated to "+tz)
 }
 
@@ -325,7 +320,6 @@ func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	}
 
 	st.UpdateGuildRunHour(ic.GuildID, hour)
-	_ = st.Save(cfg.StatePath)
 	replyEphemeral(s, ic, fmt.Sprintf("Daily run hour updated to %02d:00 (guild timezone)", hour))
 }
 

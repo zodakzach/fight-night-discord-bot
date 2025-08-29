@@ -138,7 +138,6 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 
 	st.MarkPosted(guildID, org, todayKey)
-	_ = st.Save(cfg.StatePath)
 }
 
 func buildMessage(org string, events []sources.Event, loc *time.Location) string {
