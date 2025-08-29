@@ -36,7 +36,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race -cover ./...
+        run: go test -race ./...
 
       - name: Build
         env:
@@ -51,4 +51,3 @@ jobs:
           name: fight-night-bot-linux-amd64
           path: bin/fight-night-bot
           if-no-files-found: error
-
