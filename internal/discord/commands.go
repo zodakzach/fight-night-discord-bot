@@ -312,6 +312,41 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 		registered = append(registered, c.Name)
 	}
 	logx.Info("commands registered", "target", "global", "count", len(res), "names", registered)
+
+	// Clear guild-scoped commands to avoid guild+global duplicates.
+	if strings.TrimSpace(devGuild) != "" {
+		logx.Info("clearing dev guild commands due to global registration", "app_id", appID, "guild_id", devGuild)
+		if _, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, []*discordgo.ApplicationCommand{}); err != nil {
+			logx.Warn("failed clearing dev guild commands", "err", err, "app_id", appID, "guild_id", devGuild)
+		} else {
+			logx.Info("dev guild commands cleared", "guild_id", devGuild)
+		}
+	} else {
+		// No dev guild configured; sweep all guilds to ensure no leftover guild-scoped
+		// commands remain that would duplicate the newly-registered global commands.
+		clearAllGuildCommands(s, appID)
+	}
+}
+
+// clearAllGuildCommands clears guild-scoped application commands for all guilds
+// in the current session state. Safe to call in prod after registering global commands.
+func clearAllGuildCommands(s *discordgo.Session, appID string) {
+	for _, g := range s.State.Guilds {
+		gid := g.ID
+		// Best-effort: list commands to log names; proceed even if list fails.
+		names := []string{}
+		if cmds, err := s.ApplicationCommands(appID, gid); err == nil {
+			for _, c := range cmds {
+				names = append(names, c.Name)
+			}
+		}
+		logx.Info("clearing guild commands", "guild_id", gid, "names", names)
+		if _, err := s.ApplicationCommandBulkOverwrite(appID, gid, []*discordgo.ApplicationCommand{}); err != nil {
+			logx.Warn("failed clearing guild commands", "guild_id", gid, "err", err)
+		} else {
+			logx.Info("guild commands cleared", "guild_id", gid)
+		}
+	}
 }
 
 func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
