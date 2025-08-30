@@ -41,14 +41,7 @@ func runNotifierTick(s *discordgo.Session, st *state.Store, mgr *sources.Manager
 // (falling back to cfg.TZ when unset/invalid).
 func shouldRunNow(st *state.Store, guildID string, cfg config.Config, instant time.Time) bool {
 	// Determine timezone
-	_, tzName, _ := st.GetGuildSettings(guildID)
-	if tzName == "" {
-		tzName = cfg.TZ
-	}
-	loc, err := time.LoadLocation(tzName)
-	if err != nil {
-		loc = time.Local
-	}
+	loc, _ := guildLocation(st, cfg, guildID)
 	// Determine run hour
 	hour := st.GetGuildRunHour(guildID)
 	if hour < 0 {
@@ -77,7 +70,7 @@ func scheduleHourly(fn func()) {
 }
 
 func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sources.Manager, cfg config.Config) {
-	channelID, tzName, lastPosted := st.GetGuildSettings(guildID)
+	channelID, _, lastPosted := st.GetGuildSettings(guildID)
 	if channelID == "" {
 		return
 	}
@@ -98,10 +91,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 		return
 	}
 
-	loc, err := time.LoadLocation(tzName)
-	if err != nil || tzName == "" {
-		loc, _ = time.LoadLocation(cfg.TZ)
-	}
+	loc, _ := guildLocation(st, cfg, guildID)
 	now := time.Now().In(loc)
 	todayYYYYMMDD := now.Format("20060102")
 	todayKey := now.Format("2006-01-02")
@@ -114,7 +104,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 	var todays []sources.Event
 	for _, e := range events {
-		t, err := time.Parse(time.RFC3339, e.Date)
+		t, err := parseAPITime(e.Date)
 		if err != nil {
 			continue
 		}
@@ -149,7 +139,7 @@ func buildMessage(org string, events []sources.Event, loc *time.Location) string
 			name = e.ShortName
 		}
 		tstr := ""
-		if t, err := time.Parse(time.RFC3339, e.Date); err == nil {
+		if t, err := parseAPITime(e.Date); err == nil {
 			tstr = t.In(loc).Format("Mon 3:04 PM")
 		}
 		if tstr != "" {

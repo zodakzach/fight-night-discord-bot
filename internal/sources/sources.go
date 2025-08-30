@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"net/http"
+	"sort"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
 )
@@ -35,6 +36,16 @@ func (m *Manager) Register(org string, p Provider) { m.providers[org] = p }
 func (m *Manager) Provider(org string) (Provider, bool) {
 	p, ok := m.providers[org]
 	return p, ok
+}
+
+// Orgs returns a sorted list of registered organization keys.
+func (m *Manager) Orgs() []string {
+	keys := make([]string, 0, len(m.providers))
+	for k := range m.providers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // NewDefaultManager wires built-in providers for known orgs.
