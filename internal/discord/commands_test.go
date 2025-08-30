@@ -176,7 +176,6 @@ func TestHandleHelp_IncludesKeyLines(t *testing.T) {
 func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
-	cfg := config.Config{StatePath: "", TZ: "America/New_York"}
 
 	var got string
 	old := sendInteractionResponse
@@ -192,7 +191,7 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 		Type:    discordgo.InteractionApplicationCommand,
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-tz"},
 	}}
-	handleSetTZ(s, ic, st, cfg)
+	handleSetTZ(s, ic, st)
 	if !strings.Contains(got, "Usage: /set-tz") {
 		t.Fatalf("expected usage when missing option, got %q", got)
 	}
@@ -211,7 +210,7 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 			}},
 		},
 	}}
-	handleSetTZ(s, ic, st, cfg)
+	handleSetTZ(s, ic, st)
 	if !strings.Contains(got, "Invalid timezone") {
 		t.Fatalf("expected invalid tz message, got %q", got)
 	}
@@ -230,7 +229,7 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 			}},
 		},
 	}}
-	handleSetTZ(s, ic, st, cfg)
+	handleSetTZ(s, ic, st)
 	if !strings.Contains(got, "Timezone updated to Europe/London") {
 		t.Fatalf("expected success tz message, got %q", got)
 	}
@@ -239,7 +238,6 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
-	cfg := config.Config{}
 
 	var got string
 	old := sendInteractionResponse
@@ -254,7 +252,7 @@ func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
 		Type:    discordgo.InteractionApplicationCommand,
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "notify"},
 	}}
-	handleNotifyToggle(s, ic, st, cfg)
+	handleNotifyToggle(s, ic, st)
 	if !strings.Contains(got, "Usage: /notify state:<on|off>") {
 		t.Fatalf("expected notify usage message, got %q", got)
 	}
@@ -263,7 +261,6 @@ func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
 func TestHandleSetOrg_UsageWhenMissingOption(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
-	cfg := config.Config{}
 
 	var got string
 	old := sendInteractionResponse
@@ -278,7 +275,7 @@ func TestHandleSetOrg_UsageWhenMissingOption(t *testing.T) {
 		Type:    discordgo.InteractionApplicationCommand,
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-org"},
 	}}
-	handleSetOrg(s, ic, st, cfg)
+	handleSetOrg(s, ic, st)
 	if !strings.Contains(got, "Usage: /set-org org:<ufc>") {
 		t.Fatalf("expected set-org usage message, got %q", got)
 	}

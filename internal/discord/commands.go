@@ -384,15 +384,15 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	case "set-delivery":
 		handleSetDelivery(s, ic, st)
 	case "notify":
-		handleNotifyToggle(s, ic, st, cfg)
+		handleNotifyToggle(s, ic, st)
 	case "events":
-		handleEventsToggle(s, ic, st, cfg)
+		handleEventsToggle(s, ic, st)
 	case "set-tz":
-		handleSetTZ(s, ic, st, cfg)
+		handleSetTZ(s, ic, st)
 	case "set-run-hour":
-		handleSetRunHour(s, ic, st, cfg)
+		handleSetRunHour(s, ic, st)
 	case "set-org":
-		handleSetOrg(s, ic, st, cfg)
+		handleSetOrg(s, ic, st)
 	case "status":
 		handleStatus(s, ic, st, cfg)
 	case "help":
@@ -430,7 +430,7 @@ func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	replyEphemeral(s, ic, "Notification channel updated.")
 }
 
-func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
 		replyEphemeral(s, ic, "Usage: /notify state:<on|off>")
@@ -465,7 +465,7 @@ func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 	}
 }
 
-func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
 		replyEphemeral(s, ic, "Usage: /events state:<on|off>")
@@ -500,7 +500,7 @@ func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 	}
 }
 
-func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
 		replyEphemeral(s, ic, "Usage: /set-org org:<ufc>")
@@ -528,7 +528,7 @@ func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	}
 }
 
-func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
 		replyEphemeral(s, ic, "Usage: /set-tz tz:<IANA timezone>")
@@ -641,7 +641,7 @@ func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 }
 
-func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
 		replyEphemeral(s, ic, "Usage: /set-run-hour hour:<0-23>")
