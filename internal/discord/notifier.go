@@ -95,11 +95,26 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 
 	loc, _ := guildLocation(st, cfg, guildID)
 	now := time.Now().In(loc)
-	todayYYYYMMDD := now.Format("20060102")
-	todayKey := now.Format("2006-01-02")
 
-	// Fetch events for today and filter to those occurring today in the guild timezone.
-	events, err := provider.FetchEventsRange(context.Background(), todayYYYYMMDD, todayYYYYMMDD)
+	// Use shared next-event selection and gate on "today" only.
+	_, nextAt, ok, err := pickNextEvent(provider, loc)
+	if err != nil || !ok {
+		return
+	}
+	postDayYYYYMMDD := nextAt.In(loc).Format("20060102")
+	if now.Format("20060102") != postDayYYYYMMDD {
+		// Not the event day; skip posting.
+		return
+	}
+	todayKey := nextAt.In(loc).Format("2006-01-02")
+
+	already := lastPosted != nil && lastPosted[org] == todayKey
+	if already {
+		return
+	}
+
+	// Re-fetch only today’s events for list formatting
+	events, err := provider.FetchEventsRange(context.Background(), postDayYYYYMMDD, postDayYYYYMMDD)
 	if err != nil {
 		logx.Error("events fetch error", "guild_id", guildID, "err", err)
 		return
@@ -110,16 +125,11 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 		if err != nil {
 			continue
 		}
-		if t.In(loc).Format("20060102") == todayYYYYMMDD {
+		if t.In(loc).Format("20060102") == postDayYYYYMMDD {
 			todays = append(todays, e)
 		}
 	}
 	if len(todays) == 0 {
-		return
-	}
-
-	already := lastPosted != nil && lastPosted[org] == todayKey
-	if already {
 		return
 	}
 
