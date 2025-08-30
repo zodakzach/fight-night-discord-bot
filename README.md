@@ -25,6 +25,7 @@ Representative commands (names/args may vary slightly based on current implement
 - `/set-org org:<ufc>`: Choose the organization (currently UFC only). Required before enabling notifications.
 - `/set-channel channel:<#channel>`: Pick the channel for notifications.
 - `/notify on|off`: Enable or disable fight-night posts for this guild (requires org set; default is off).
+- `/events state:<on|off>`: Enable or disable creating Discord Scheduled Events the day before an event (requires org set; bot needs Manage Events).
 - `/set-delivery mode:<message|announcement>`: Choose regular messages or announcements. Announcement mode only applies when the target channel is an Announcement channel and the bot has permission to publish; otherwise it falls back to a normal message.
 - `/next-event`: Show the next event for the selected org.
 - `/set-run-hour hour:<0-23>`: Set the daily notification hour (guild timezone).

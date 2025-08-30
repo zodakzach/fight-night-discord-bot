@@ -31,6 +31,8 @@ func runNotifierTick(s *discordgo.Session, st *state.Store, mgr *sources.Manager
 	now := time.Now()
 	for _, gid := range st.GuildIDs() {
 		if shouldRunNow(st, gid, cfg, now) {
+			// Create tomorrow's scheduled event first (if any), then post today's message.
+			ensureTomorrowScheduledEvent(s, st, gid, mgr, cfg)
 			notifyGuild(s, st, gid, mgr, cfg)
 		}
 	}
@@ -141,6 +143,62 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 
 	st.MarkPosted(guildID, org, todayKey)
+}
+
+// ensureTomorrowScheduledEvent creates a Discord Scheduled Event the day before the
+// next event (based on guild timezone) if not already created.
+func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID string, mgr *sources.Manager, cfg config.Config) {
+	// Require org and events toggle enabled to avoid surprising behavior.
+	if !st.GetGuildEventsEnabled(guildID) || !st.HasGuildOrg(guildID) {
+		return
+	}
+	org := st.GetGuildOrg(guildID)
+	provider, ok := mgr.Provider(org)
+	if !ok {
+		return
+	}
+	loc, _ := guildLocation(st, cfg, guildID)
+	nowLocal := time.Now().In(loc)
+	// We want to create the event exactly on the day before the event (at the guild's run hour).
+	// So: find the next upcoming event, get its local date, and only create if today == eventDate - 1 day.
+
+	// Use the same next-event selection logic as the command.
+	pickName, pickAt, ok, err := pickNextEvent(provider, loc)
+	if err != nil || !ok {
+		return
+	}
+
+	evLocal := pickAt.In(loc)
+	evDateKey := evLocal.Format("2006-01-02")
+	// Only create on the day before the event
+	if nowLocal.Format("2006-01-02") != evLocal.AddDate(0, 0, -1).Format("2006-01-02") {
+		return
+	}
+	// Skip if already created for this event date
+	if st.HasScheduledEvent(guildID, org, evDateKey) {
+		return
+	}
+
+	// Create an EXTERNAL scheduled event at the event start time; end time = +3h.
+	start := pickAt
+	end := start.Add(3 * time.Hour)
+	// Manage Events permission is required for the bot; if missing, this will fail.
+	params := &discordgo.GuildScheduledEventParams{
+		Name:               strings.ToUpper(org) + ": " + pickName,
+		Description:        "Auto-created by Fight Night bot",
+		ScheduledStartTime: &start,
+		ScheduledEndTime:   &end,
+		PrivacyLevel:       discordgo.GuildScheduledEventPrivacyLevelGuildOnly,
+		EntityType:         discordgo.GuildScheduledEventEntityTypeExternal,
+		EntityMetadata:     &discordgo.GuildScheduledEventEntityMetadata{Location: "TBD"},
+	}
+	ev, err := s.GuildScheduledEventCreate(guildID, params)
+	if err != nil {
+		logx.Warn("scheduled event create failed", "guild_id", guildID, "org", org, "err", err)
+		return
+	}
+	// Mark by the actual event date to avoid duplicates for the same event
+	st.MarkScheduledEvent(guildID, org, evDateKey, ev.ID)
 }
 
 func buildMessage(org string, events []sources.Event, loc *time.Location) string {

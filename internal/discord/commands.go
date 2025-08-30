@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -53,6 +52,25 @@ func commandSpecs(orgs []string) []commandSpec {
 				},
 			},
 			Note: "Requires org to be set (use /set-org)",
+		},
+		{
+			Def: &discordgo.ApplicationCommand{
+				Name:        "events",
+				Description: "Enable or disable creating Scheduled Events (day-before)",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "state",
+						Description: "Enable or disable scheduled events",
+						Required:    true,
+						Choices: []*discordgo.ApplicationCommandOptionChoice{
+							{Name: "on", Value: "on"},
+							{Name: "off", Value: "off"},
+						},
+					},
+				},
+			},
+			Note: "Creates a Discord Scheduled Event the day before fight night.",
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
@@ -243,6 +261,12 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 	// Define top-level commands from centralized specs
 	cmds := applicationCommands()
 
+	// Dev-only helper command to create a scheduled event for the next org event.
+	devCmd := &discordgo.ApplicationCommand{
+		Name:        "create-event",
+		Description: "[dev] Create a scheduled event for the next org event",
+	}
+
 	appID := s.State.User.ID
 	// Log the intent to register commands with context
 	names := make([]string, 0, len(cmds))
@@ -250,8 +274,12 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 		names = append(names, c.Name)
 	}
 	if devGuild != "" {
+		// Include the dev-only command only for the dev guild registration.
+		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+1)
+		cmdsWithDev = append(cmdsWithDev, cmds...)
+		cmdsWithDev = append(cmdsWithDev, devCmd)
 		logx.Info("registering slash commands", "target", "guild", "app_id", appID, "guild_id", devGuild, "count", len(cmds), "names", names)
-		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmds)
+		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmdsWithDev)
 		if err != nil {
 			logx.Error("bulk overwrite commands", "err", err, "target", "guild", "app_id", appID, "guild_id", devGuild)
 			return
@@ -322,6 +350,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		handleSetDelivery(s, ic, st)
 	case "notify":
 		handleNotifyToggle(s, ic, st, cfg)
+	case "events":
+		handleEventsToggle(s, ic, st, cfg)
 	case "set-tz":
 		handleSetTZ(s, ic, st, cfg)
 	case "set-run-hour":
@@ -334,6 +364,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		handleHelp(s, ic)
 	case "next-event":
 		handleNextEvent(s, ic, st, cfg, mgr)
+	case "create-event":
+		handleCreateEvent(s, ic, st, cfg, mgr)
 	default:
 		replyEphemeral(s, ic, "Unknown command.")
 	}
@@ -398,6 +430,41 @@ func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 	}
 }
 
+func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /events state:<on|off>")
+		return
+	}
+	state := opts[0].StringValue()
+
+	// Permission check similar to set-channel
+	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if !ok {
+		replyEphemeral(s, ic, "You need Manage Channels permission to change scheduled events.")
+		return
+	}
+
+	switch state {
+	case "on":
+		if !st.HasGuildOrg(ic.GuildID) {
+			replyEphemeral(s, ic, "Please set an organization first with /set-org before enabling scheduled events.")
+			return
+		}
+		st.UpdateGuildEventsEnabled(ic.GuildID, true)
+		replyEphemeral(s, ic, "Scheduled events enabled (will create day-before).")
+	case "off":
+		st.UpdateGuildEventsEnabled(ic.GuildID, false)
+		replyEphemeral(s, ic, "Scheduled events disabled.")
+	default:
+		replyEphemeral(s, ic, "Invalid state. Use on or off.")
+	}
+}
+
 func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
@@ -439,6 +506,73 @@ func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *stat
 	}
 	st.UpdateGuildTZ(ic.GuildID, tz)
 	replyEphemeral(s, ic, "Timezone updated to "+tz)
+}
+
+// handleCreateEvent: dev-only helper to create a scheduled event for the next org event.
+func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+	// Basic checks
+	if ic.GuildID == "" {
+		replyEphemeral(s, ic, "Use in a server")
+		return
+	}
+	if !st.HasGuildOrg(ic.GuildID) {
+		replyEphemeral(s, ic, "Set an organization first with /set-org")
+		return
+	}
+	// Permission: require Manage Events for invoker to reduce abuse during testing
+	if ic.Member == nil || (ic.Member.Permissions&discordgo.PermissionManageEvents) == 0 {
+		replyEphemeral(s, ic, "You need Manage Events to use this (dev).")
+		return
+	}
+
+	// Resolve org/provider
+	org := st.GetGuildOrg(ic.GuildID)
+	provider, ok := mgr.Provider(org)
+	if !ok {
+		replyEphemeral(s, ic, "Unsupported org provider")
+		return
+	}
+
+	// Timezone selection for display and date filtering
+	loc, _ := guildLocation(st, cfg, ic.GuildID)
+
+	// Use shared next-event selection logic
+	pickName, pickAt, ok, err := pickNextEvent(provider, loc)
+	if err != nil {
+		replyEphemeral(s, ic, "Error fetching events: "+err.Error())
+		return
+	}
+	if !ok {
+		replyEphemeral(s, ic, "No upcoming event to create.")
+		return
+	}
+
+	// Prevent duplicates: check by the event's local date
+	evDateKey := pickAt.In(loc).Format("2006-01-02")
+	if st.HasScheduledEvent(ic.GuildID, org, evDateKey) {
+		replyEphemeral(s, ic, "An event already exists for "+evDateKey+".")
+		return
+	}
+
+	startAt := pickAt
+	endAt := startAt.Add(3 * time.Hour)
+	params := &discordgo.GuildScheduledEventParams{
+		Name:               strings.ToUpper(org) + ": " + pickName,
+		Description:        "Created by dev command",
+		ScheduledStartTime: &startAt,
+		ScheduledEndTime:   &endAt,
+		PrivacyLevel:       discordgo.GuildScheduledEventPrivacyLevelGuildOnly,
+		EntityType:         discordgo.GuildScheduledEventEntityTypeExternal,
+		EntityMetadata:     &discordgo.GuildScheduledEventEntityMetadata{Location: "TBD"},
+	}
+	ev, err := s.GuildScheduledEventCreate(ic.GuildID, params)
+	if err != nil {
+		replyEphemeral(s, ic, "Create failed: "+err.Error())
+		return
+	}
+	// Track by local date key to avoid duplicate creates
+	st.MarkScheduledEvent(ic.GuildID, org, evDateKey, ev.ID)
+	replyEphemeral(s, ic, "Scheduled event created: "+ev.Name)
 }
 
 func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
@@ -515,6 +649,10 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	if st.GetGuildNotifyEnabled(ic.GuildID) {
 		notify = "on"
 	}
+	events := "off"
+	if st.GetGuildEventsEnabled(ic.GuildID) {
+		events = "on"
+	}
 	delivery := "message"
 	if st.GetGuildAnnounceEnabled(ic.GuildID) {
 		delivery = "announcement"
@@ -524,8 +662,8 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 		runAt = fmt.Sprintf("%02d:00", h)
 	}
 	msg := fmt.Sprintf(
-		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nDelivery: %s\nRun time: %s",
-		ch, tz, orgDisplay, notify, delivery, runAt,
+		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nEvents: %s\nDelivery: %s\nRun time: %s",
+		ch, tz, orgDisplay, notify, events, delivery, runAt,
 	)
 	replyEphemeral(s, ic, msg)
 }
@@ -582,74 +720,12 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		return
 	}
 
-	nowUTC := time.Now().UTC()
-	nowLocal := time.Now().In(loc)
-	// Query provider by UTC date keys and include yesterday to cover
-	// events that started late last night UTC but are "today" locally.
-	start := nowUTC.AddDate(0, 0, -1).Format("20060102")
-	end := nowUTC.AddDate(0, 0, 30).Format("20060102")
-
-	events, err := provider.FetchEventsRange(context.Background(), start, end)
+	nextName, nextAt, ok, err := pickNextEvent(provider, loc)
 	if err != nil {
 		_ = editInteractionResponse(s, ic, "Error fetching events. Please try again later.")
 		return
 	}
-
-	todayKey := nowLocal.Format("20060102")
-
-	var todayName string
-	var todayAt time.Time
-	var futureName string
-	var futureAt time.Time
-	// Track the most recent already-started event in case there is
-	// nothing else today and no upcoming future within the window.
-	var recentName string
-	var recentAt time.Time
-
-	for _, e := range events {
-		t, err := parseAPITime(e.Date /* or e.StartDate if that’s the field */)
-		if err != nil {
-			continue
-		}
-		evLocalKey := t.In(loc).Format("20060102")
-		name := e.Name
-		if name == "" {
-			name = e.ShortName
-		}
-		if evLocalKey == todayKey {
-			if todayAt.IsZero() || t.Before(todayAt) {
-				todayAt, todayName = t, name
-			}
-			continue
-		}
-		if t.After(nowUTC) {
-			if futureAt.IsZero() || t.Before(futureAt) {
-				futureAt, futureName = t, name
-			}
-			continue
-		}
-		// Track the most recent past event as a fallback (e.g., started recently)
-		if recentAt.IsZero() || t.After(recentAt) {
-			recentAt, recentName = t, name
-		}
-	}
-
-	var nextName string
-	var nextAt time.Time
-	if !todayAt.IsZero() {
-		nextAt, nextName = todayAt, todayName
-	} else if !futureAt.IsZero() {
-		nextAt, nextName = futureAt, futureName
-	}
-
-	if nextAt.IsZero() {
-		// If nothing today or in the future, prefer a recently-started
-		// event within the last 12 hours so users still get a useful answer.
-		if !recentAt.IsZero() && nowUTC.Sub(recentAt) <= 12*time.Hour {
-			nextAt, nextName = recentAt, recentName
-		}
-	}
-	if nextAt.IsZero() {
+	if !ok {
 		_ = editInteractionResponse(s, ic, "No upcoming "+strings.ToUpper(org)+" events found in the next 30 days.")
 		return
 	}

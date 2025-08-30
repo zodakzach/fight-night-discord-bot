@@ -47,13 +47,21 @@ func ensureSchema(db *sqlx.DB) error {
             enabled    INTEGER,
             org        TEXT,
             run_hour   INTEGER,
-            announce   INTEGER
+            announce   INTEGER,
+            events     INTEGER
         );
         CREATE TABLE IF NOT EXISTS last_posted (
             guild_id  TEXT NOT NULL,
             sport     TEXT NOT NULL,
             last_date TEXT NOT NULL,
             PRIMARY KEY (guild_id, sport)
+        );
+        CREATE TABLE IF NOT EXISTS scheduled_events (
+            guild_id   TEXT NOT NULL,
+            sport      TEXT NOT NULL,
+            event_date TEXT NOT NULL, -- YYYY-MM-DD in guild TZ
+            event_id   TEXT NOT NULL,
+            PRIMARY KEY (guild_id, sport, event_date)
         );
     `)
 	if err != nil {
@@ -71,6 +79,9 @@ func ensureSchema(db *sqlx.DB) error {
 		// ignore
 	}
 	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN announce INTEGER"); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN events INTEGER"); err != nil {
 		// ignore
 	}
 	return nil
@@ -246,4 +257,46 @@ func (s *Store) GetGuildRunHour(guildID string) int {
 		return -1
 	}
 	return int(hour.Int32)
+}
+
+// UpdateGuildEventsEnabled toggles creation of Discord Scheduled Events.
+func (s *Store) UpdateGuildEventsEnabled(guildID string, enabled bool) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
+		return
+	}
+	val := 0
+	if enabled {
+		val = 1
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET events = ? WHERE guild_id = ?", val, guildID); err != nil {
+		logx.Error("state: update events", "guild_id", guildID, "err", err)
+	}
+}
+
+// GetGuildEventsEnabled returns true if scheduled event creation is enabled (default false).
+func (s *Store) GetGuildEventsEnabled(guildID string) bool {
+	var v sql.NullInt32
+	row := s.db.QueryRowx("SELECT events FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&v)
+	return v.Valid && v.Int32 != 0
+}
+
+// MarkScheduledEvent stores the created Discord scheduled event id for a given date/org.
+func (s *Store) MarkScheduledEvent(guildID, sport, yyyyMmDd string, eventID string) {
+	if _, err := s.db.Exec(
+		"INSERT INTO scheduled_events (guild_id, sport, event_date, event_id) VALUES (?, ?, ?, ?) "+
+			"ON CONFLICT(guild_id, sport, event_date) DO UPDATE SET event_id = excluded.event_id",
+		guildID, sport, yyyyMmDd, eventID,
+	); err != nil {
+		logx.Error("state: mark scheduled event", "guild_id", guildID, "sport", sport, "date", yyyyMmDd, "err", err)
+	}
+}
+
+// HasScheduledEvent returns true if a scheduled event record exists for date/org.
+func (s *Store) HasScheduledEvent(guildID, sport, yyyyMmDd string) bool {
+	var id string
+	row := s.db.QueryRowx("SELECT event_id FROM scheduled_events WHERE guild_id = ? AND sport = ? AND event_date = ?", guildID, sport, yyyyMmDd)
+	_ = row.Scan(&id)
+	return id != ""
 }
