@@ -10,12 +10,14 @@ I'm lazy and tired of manually posting fight-night events in my Discord server. 
 - Lets you select the org and destination channel for posts.
 - Provides a quick "next event" lookup command.
 - Tracks last-posted event per guild and per org to prevent duplicates.
+- Optional announcement delivery that publishes in Announcement channels.
 
 ## Features
 - Org selection per guild (UFC supported today; others later).
 - Notifications are OFF by default; you must set an org before enabling.
 - Channel routing to a specific, configurable channel.
 - Event-day posting with at-most-once delivery per event/guild/org.
+- Optional announcement mode: publish messages from Announcement channels to follower servers (falls back to regular messages when unsupported).
 - Next-event lookup via slash command.
 
 ## Commands
@@ -23,6 +25,7 @@ Representative commands (names/args may vary slightly based on current implement
 - `/set-org org:<ufc>`: Choose the organization (currently UFC only). Required before enabling notifications.
 - `/set-channel channel:<#channel>`: Pick the channel for notifications.
 - `/notify on|off`: Enable or disable fight-night posts for this guild (requires org set; default is off).
+- `/set-delivery mode:<message|announcement>`: Choose regular messages or announcements. Announcement mode only applies when the target channel is an Announcement channel and the bot has permission to publish; otherwise it falls back to a normal message.
 - `/next-event`: Show the next event for the selected org.
 - `/set-run-hour hour:<0-23>`: Set the daily notification hour (guild timezone).
 - `/set-tz tz:<Region/City>`: Set the guild timezone (IANA name).
@@ -39,6 +42,7 @@ Representative commands (names/args may vary slightly based on current implement
 Notes
 - Posts run daily at the configured hour (per guild via `/set-run-hour`, default from `RUN_AT`) in your guild's timezone; event-day posts only. Minutes are ignored.
 - You must set an org before enabling notifications.
+- Announcement mode works only in Announcement (News) channels. The bot will send the message normally and then attempt to publish it (crosspost). If the channel type is not Announcement or publishing fails, the message remains as a regular post.
 
 ## Tech Stack
 - Language: Go 1.25
@@ -112,7 +116,6 @@ Target: containerized deploy with a small persistent volume for SQLite.
 ## Roadmap
 - Sources: add more orgs (Bellator, PFL, ONE) via providers; health checks and fallbacks per provider.
 - Messaging: rich embeds (title, banner, links), start-time summaries, prelim/main-card breakdowns.
-- Announcements: option to send posts as Discord announcements (publish in news channels) rather than only regular messages; add a toggle and required permission checks.
 - Reliability: HTTP retries with backoff, rate limiting, basic response caching, stricter time parsing.
 - Scheduling: hourly top-of-hour tick is in place; add DST edge-case tests/fixes, year-boundary range correctness, and resilience against clock drift.
 

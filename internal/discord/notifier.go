@@ -122,9 +122,22 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 
 	msg := buildMessage(org, todays, loc)
-	if _, err := sendChannelMessage(s, channelID, msg); err != nil {
+	sent, err := sendChannelMessage(s, channelID, msg)
+	if err != nil {
 		logx.Error("send message error", "guild_id", guildID, "err", err)
 		return
+	}
+
+	// If announcement mode is enabled and the channel supports it, attempt to crosspost.
+	if st.GetGuildAnnounceEnabled(guildID) && sent != nil {
+		ch, chErr := s.Channel(channelID)
+		if chErr == nil && ch != nil && ch.Type == discordgo.ChannelTypeGuildNews {
+			if _, xerr := s.ChannelMessageCrosspost(channelID, sent.ID); xerr != nil {
+				logx.Warn("crosspost failed", "guild_id", guildID, "channel_id", channelID, "message_id", sent.ID, "err", xerr)
+			}
+		} else {
+			// Not a news/announcement channel; skip crosspost silently.
+		}
 	}
 
 	st.MarkPosted(guildID, org, todayKey)

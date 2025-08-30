@@ -127,6 +127,25 @@ func commandSpecs(orgs []string) []commandSpec {
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
+				Name:        "set-delivery",
+				Description: "Choose message delivery: regular message or announcement",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "mode",
+						Description: "Delivery mode",
+						Required:    true,
+						Choices: []*discordgo.ApplicationCommandOptionChoice{
+							{Name: "message", Value: "message"},
+							{Name: "announcement", Value: "announcement"},
+						},
+					},
+				},
+			},
+			Note: "Announcement mode publishes in Announcement channels and may require Manage Messages.",
+		},
+		{
+			Def: &discordgo.ApplicationCommand{
 				Name:        "next-event",
 				Description: "Show the next event for the selected org",
 			},
@@ -299,6 +318,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	switch data.Name {
 	case "set-channel":
 		handleSetChannel(s, ic, st)
+	case "set-delivery":
+		handleSetDelivery(s, ic, st)
 	case "notify":
 		handleNotifyToggle(s, ic, st, cfg)
 	case "set-tz":
@@ -339,7 +360,7 @@ func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 
 	st.UpdateGuildChannel(ic.GuildID, channelID)
 
-	replyEphemeral(s, ic, "Announcement channel updated.")
+	replyEphemeral(s, ic, "Notification channel updated.")
 }
 
 func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
@@ -420,6 +441,37 @@ func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *stat
 	replyEphemeral(s, ic, "Timezone updated to "+tz)
 }
 
+func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
+	opts := ic.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		replyEphemeral(s, ic, "Usage: /set-delivery mode:<message|announcement>")
+		return
+	}
+	mode := strings.ToLower(opts[0].StringValue())
+
+	// Permission check similar to set-channel
+	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if !ok {
+		replyEphemeral(s, ic, "You need Manage Channels permission to change delivery mode.")
+		return
+	}
+
+	switch mode {
+	case "message":
+		st.UpdateGuildAnnounceEnabled(ic.GuildID, false)
+		replyEphemeral(s, ic, "Delivery mode set to regular messages.")
+	case "announcement":
+		st.UpdateGuildAnnounceEnabled(ic.GuildID, true)
+		replyEphemeral(s, ic, "Delivery mode set to announcements (when channel supports it).")
+	default:
+		replyEphemeral(s, ic, "Invalid mode. Use message or announcement.")
+	}
+}
+
 func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
@@ -463,13 +515,17 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	if st.GetGuildNotifyEnabled(ic.GuildID) {
 		notify = "on"
 	}
+	delivery := "message"
+	if st.GetGuildAnnounceEnabled(ic.GuildID) {
+		delivery = "announcement"
+	}
 	runAt := cfg.RunAt
 	if h := st.GetGuildRunHour(ic.GuildID); h >= 0 {
 		runAt = fmt.Sprintf("%02d:00", h)
 	}
 	msg := fmt.Sprintf(
-		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nRun time: %s",
-		ch, tz, orgDisplay, notify, runAt,
+		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nDelivery: %s\nRun time: %s",
+		ch, tz, orgDisplay, notify, delivery, runAt,
 	)
 	replyEphemeral(s, ic, msg)
 }

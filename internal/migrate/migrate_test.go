@@ -42,7 +42,7 @@ func TestRun_AppliesInitialSchema(t *testing.T) {
 
 	// guild_settings columns
 	gs := tableInfo(t, db, "guild_settings")
-	if len(gs) != 6 {
+	if len(gs) != 7 {
 		t.Fatalf("guild_settings columns: got %d", len(gs))
 	}
 	wantGs := map[string]struct {
@@ -55,6 +55,7 @@ func TestRun_AppliesInitialSchema(t *testing.T) {
 		"enabled":    {typ: "INTEGER", pk: false},
 		"org":        {typ: "TEXT", pk: false},
 		"run_hour":   {typ: "INTEGER", pk: false},
+		"announce":   {typ: "INTEGER", pk: false},
 	}
 	for _, c := range gs {
 		w, ok := wantGs[c.Name]

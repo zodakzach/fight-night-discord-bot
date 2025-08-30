@@ -46,7 +46,8 @@ func ensureSchema(db *sqlx.DB) error {
             timezone   TEXT,
             enabled    INTEGER,
             org        TEXT,
-            run_hour   INTEGER
+            run_hour   INTEGER,
+            announce   INTEGER
         );
         CREATE TABLE IF NOT EXISTS last_posted (
             guild_id  TEXT NOT NULL,
@@ -67,6 +68,9 @@ func ensureSchema(db *sqlx.DB) error {
 		// ignore
 	}
 	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN run_hour INTEGER"); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN announce INTEGER"); err != nil {
 		// ignore
 	}
 	return nil
@@ -162,6 +166,31 @@ func (s *Store) GetGuildNotifyEnabled(guildID string) bool {
 		return false
 	}
 	return enabled.Int32 != 0
+}
+
+// UpdateGuildAnnounceEnabled upserts whether to publish notifications as announcements
+// (crosspost) when the channel supports it.
+func (s *Store) UpdateGuildAnnounceEnabled(guildID string, announce bool) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
+		return
+	}
+	val := 0
+	if announce {
+		val = 1
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET announce = ? WHERE guild_id = ?", val, guildID); err != nil {
+		logx.Error("state: update announce", "guild_id", guildID, "err", err)
+	}
+}
+
+// GetGuildAnnounceEnabled returns true if announcement publishing is enabled for the guild.
+// Default is false when unset.
+func (s *Store) GetGuildAnnounceEnabled(guildID string) bool {
+	var v sql.NullInt32
+	row := s.db.QueryRowx("SELECT announce FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&v)
+	return v.Valid && v.Int32 != 0
 }
 
 // UpdateGuildOrg upserts the org for the guild.
