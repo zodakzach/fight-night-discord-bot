@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -97,7 +98,12 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	now := time.Now().In(loc)
 
 	// Use provider-driven selection and gate on "today" only.
-	pickName, nextAt, ok, err := pickNextEvent(provider, loc)
+	// Build provider context with per-guild UFC options
+	ctx := context.Background()
+	if org == "ufc" {
+		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
+	}
+	pickName, nextAt, ok, err := pickNextEvent(ctx, provider, loc)
 	if err != nil || !ok {
 		return
 	}
@@ -158,7 +164,12 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 	// So: find the next upcoming event, get its local date, and only create if today == eventDate - 1 day.
 
 	// Use the same next-event selection logic as the command.
-	pickName, pickAt, ok, err := pickNextEvent(provider, loc)
+	// Build provider context with per-guild UFC options
+	ctx := context.Background()
+	if org == "ufc" {
+		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
+	}
+	pickName, pickAt, ok, err := pickNextEvent(ctx, provider, loc)
 	if err != nil || !ok {
 		return
 	}

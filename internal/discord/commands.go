@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -38,18 +39,13 @@ func commandSpecs(orgs []string) []commandSpec {
 			Def: &discordgo.ApplicationCommand{
 				Name:        "notify",
 				Description: "Enable or disable fight-night posts for this guild",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "state",
-						Description: "Enable or disable notifications",
-						Required:    true,
-						Choices: []*discordgo.ApplicationCommandOptionChoice{
-							{Name: "on", Value: "on"},
-							{Name: "off", Value: "off"},
-						},
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "state",
+					Description: "Enable or disable notifications",
+					Required:    true,
+					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
+				}},
 			},
 			Note: "Requires org to be set (use /set-org)",
 		},
@@ -57,18 +53,13 @@ func commandSpecs(orgs []string) []commandSpec {
 			Def: &discordgo.ApplicationCommand{
 				Name:        "events",
 				Description: "Enable or disable creating Scheduled Events (day-before)",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "state",
-						Description: "Enable or disable scheduled events",
-						Required:    true,
-						Choices: []*discordgo.ApplicationCommandOptionChoice{
-							{Name: "on", Value: "on"},
-							{Name: "off", Value: "off"},
-						},
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "state",
+					Description: "Enable or disable scheduled events",
+					Required:    true,
+					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
+				}},
 			},
 			Note: "Creates a Discord Scheduled Event the day before fight night.",
 		},
@@ -76,29 +67,49 @@ func commandSpecs(orgs []string) []commandSpec {
 			Def: &discordgo.ApplicationCommand{
 				Name:        "set-org",
 				Description: "Choose the organization (currently UFC only)",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "org",
-						Description: "Organization",
-						Required:    true,
-						Choices:     orgChoices,
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "org",
+					Description: "Organization",
+					Required:    true,
+					Choices:     orgChoices,
+				}},
 			},
+		},
+		{
+			Def: &discordgo.ApplicationCommand{
+				Name:        "org-settings",
+				Description: "Org-specific settings (UFC, etc.)",
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+					Name:        "ufc",
+					Description: "UFC-specific settings",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionSubCommand,
+							Name:        "contender-ignore",
+							Description: "Ignore UFC Contender Series events (default)",
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionSubCommand,
+							Name:        "contender-include",
+							Description: "Include UFC Contender Series events",
+						},
+					},
+				}},
+			},
+			Note: "Use: /org-settings ufc contender-ignore|contender-include",
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
 				Name:        "set-tz",
 				Description: "Set the guild's timezone (IANA name)",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "tz",
-						Description: "Timezone, e.g., America/Los_Angeles",
-						Required:    true,
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "tz",
+					Description: "Timezone, e.g., America/Los_Angeles",
+					Required:    true,
+				}},
 			},
 			Note: "Example: America/Los_Angeles",
 		},
@@ -106,14 +117,12 @@ func commandSpecs(orgs []string) []commandSpec {
 			Def: &discordgo.ApplicationCommand{
 				Name:        "set-run-hour",
 				Description: "Set daily notification hour (0-23)",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionInteger,
-						Name:        "hour",
-						Description: "Hour of day (0-23)",
-						Required:    true,
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "hour",
+					Description: "Hour of day (0-23)",
+					Required:    true,
+				}},
 			},
 		},
 		{
@@ -132,33 +141,26 @@ func commandSpecs(orgs []string) []commandSpec {
 			Def: &discordgo.ApplicationCommand{
 				Name:        "set-channel",
 				Description: "Pick the channel for notifications",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:         discordgo.ApplicationCommandOptionChannel,
-						Name:         "channel",
-						Description:  "Channel to use (default: this channel)",
-						Required:     false,
-						ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:         discordgo.ApplicationCommandOptionChannel,
+					Name:         "channel",
+					Description:  "Channel to use (default: this channel)",
+					Required:     false,
+					ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
+				}},
 			},
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
 				Name:        "set-delivery",
 				Description: "Choose message delivery: regular message or announcement",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "mode",
-						Description: "Delivery mode",
-						Required:    true,
-						Choices: []*discordgo.ApplicationCommandOptionChoice{
-							{Name: "message", Value: "message"},
-							{Name: "announcement", Value: "announcement"},
-						},
-					},
-				},
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "Delivery mode",
+					Required:    true,
+					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "message", Value: "message"}, {Name: "announcement", Value: "announcement"}},
+				}},
 			},
 			Note: "Announcement mode publishes in Announcement channels and may require Manage Messages.",
 		},
@@ -393,6 +395,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		handleSetRunHour(s, ic, st)
 	case "set-org":
 		handleSetOrg(s, ic, st)
+	case "org-settings":
+		handleOrgSettings(s, ic, st)
 	case "status":
 		handleStatus(s, ic, st, cfg)
 	case "help":
@@ -528,6 +532,47 @@ func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	}
 }
 
+func handleOrgSettings(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
+	data := ic.ApplicationCommandData()
+	if len(data.Options) == 0 {
+		replyEphemeral(s, ic, "Usage: /org-settings ufc contender state:<ignore|include>")
+		return
+	}
+
+	// Permission check similar to set-channel
+	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if !ok {
+		replyEphemeral(s, ic, "You need Manage Channels permission to change org settings.")
+		return
+	}
+
+	group := data.Options[0]
+	if group.Name == "ufc" {
+		if len(group.Options) == 0 {
+			replyEphemeral(s, ic, "Usage: /org-settings ufc contender-ignore|contender-include")
+			return
+		}
+		sub := group.Options[0]
+		switch sub.Name {
+		case "contender-ignore":
+			st.UpdateGuildUFCIgnoreContender(ic.GuildID, true)
+			replyEphemeral(s, ic, "UFC Contender Series will be ignored.")
+		case "contender-include":
+			st.UpdateGuildUFCIgnoreContender(ic.GuildID, false)
+			replyEphemeral(s, ic, "UFC Contender Series will be included.")
+		default:
+			replyEphemeral(s, ic, "Unknown UFC setting.")
+		}
+		return
+	}
+
+	replyEphemeral(s, ic, "Unknown org. Currently supported: ufc")
+}
+
 func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
 	opts := ic.ApplicationCommandData().Options
 	if len(opts) == 0 {
@@ -575,7 +620,11 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	loc, _ := guildLocation(st, cfg, ic.GuildID)
 
 	// Use provider to select next/ongoing event in guild TZ
-	pickName, pickAt, ok, err := pickNextEvent(provider, loc)
+	ctx := context.Background()
+	if org == "ufc" {
+		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
+	}
+	pickName, pickAt, ok, err := pickNextEvent(ctx, provider, loc)
 	if err != nil {
 		replyEphemeral(s, ic, "Error fetching events: "+err.Error())
 		return
@@ -703,6 +752,14 @@ func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 		"Channel: %s\nTimezone: %s\nOrg: %s\nNotifications: %s\nEvents: %s\nDelivery: %s\nRun time: %s",
 		ch, tz, orgDisplay, notify, events, delivery, runAt,
 	)
+	// Append UFC-specific status when applicable
+	if strings.EqualFold(orgDisplay, "UFC") || st.GetGuildOrg(ic.GuildID) == "ufc" {
+		if st.GetGuildUFCIgnoreContender(ic.GuildID) {
+			msg += "\nUFC Contender Series: ignored"
+		} else {
+			msg += "\nUFC Contender Series: included"
+		}
+	}
 	replyEphemeral(s, ic, msg)
 }
 
@@ -758,7 +815,12 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	}
 
 	provider, _ := mgr.Provider(org)
-	nextName, nextAt, ok, err := pickNextEvent(provider, loc)
+	// Build provider context with per-guild UFC options
+	ctx := context.Background()
+	if org == "ufc" {
+		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
+	}
+	nextName, nextAt, ok, err := pickNextEvent(ctx, provider, loc)
 	if err != nil {
 		_ = editInteractionResponse(s, ic, "Error fetching events. Please try again later.")
 		return

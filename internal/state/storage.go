@@ -48,7 +48,8 @@ func ensureSchema(db *sqlx.DB) error {
             org        TEXT,
             run_hour   INTEGER,
             announce   INTEGER,
-            events     INTEGER
+            events     INTEGER,
+            ufc_ignore_contender INTEGER
         );
         CREATE TABLE IF NOT EXISTS last_posted (
             guild_id  TEXT NOT NULL,
@@ -82,6 +83,9 @@ func ensureSchema(db *sqlx.DB) error {
 		// ignore
 	}
 	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN events INTEGER"); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec("ALTER TABLE guild_settings ADD COLUMN ufc_ignore_contender INTEGER"); err != nil {
 		// ignore
 	}
 	return nil
@@ -299,4 +303,32 @@ func (s *Store) HasScheduledEvent(guildID, sport, yyyyMmDd string) bool {
 	row := s.db.QueryRowx("SELECT event_id FROM scheduled_events WHERE guild_id = ? AND sport = ? AND event_date = ?", guildID, sport, yyyyMmDd)
 	_ = row.Scan(&id)
 	return id != ""
+}
+
+// UpdateGuildUFCIgnoreContender toggles whether to ignore UFC Contender Series
+// when selecting next events. Default is true (ignored) when unset.
+func (s *Store) UpdateGuildUFCIgnoreContender(guildID string, ignore bool) {
+	if _, err := s.db.Exec("INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)", guildID); err != nil {
+		logx.Error("state: ensure guild", "guild_id", guildID, "err", err)
+		return
+	}
+	val := 0
+	if ignore {
+		val = 1
+	}
+	if _, err := s.db.Exec("UPDATE guild_settings SET ufc_ignore_contender = ? WHERE guild_id = ?", val, guildID); err != nil {
+		logx.Error("state: update ufc_ignore_contender", "guild_id", guildID, "err", err)
+	}
+}
+
+// GetGuildUFCIgnoreContender returns true if Contender Series should be ignored
+// for UFC. Defaults to true when unset (back-compat with previous behavior).
+func (s *Store) GetGuildUFCIgnoreContender(guildID string) bool {
+	var v sql.NullInt32
+	row := s.db.QueryRowx("SELECT ufc_ignore_contender FROM guild_settings WHERE guild_id = ?", guildID)
+	_ = row.Scan(&v)
+	if !v.Valid {
+		return true
+	}
+	return v.Int32 != 0
 }

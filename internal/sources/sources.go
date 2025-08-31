@@ -66,7 +66,14 @@ type ufcProvider struct{ c *espn.HTTPClient }
 
 func (p *ufcProvider) NextEvent(ctx context.Context) (string, string, bool, error) {
 	// Selection strictly in UTC; conversion happens in discord/eventutil.
-	ev, _, stUTC, _, ok, err := p.c.FetchNextOrOngoingEventAndCard(ctx, []string{"Contender Series"}, time.Now)
+	// Default behavior: ignore Contender Series unless context overrides.
+	ignores := []string{"Contender Series"}
+	if ignore, ok := ufcIgnoreContenderFromContext(ctx); ok {
+		if !ignore {
+			ignores = nil
+		}
+	}
+	ev, _, stUTC, _, ok, err := p.c.FetchNextOrOngoingEventAndCard(ctx, ignores, time.Now)
 	if err != nil || !ok || ev == nil {
 		if err != nil {
 			return "", "", false, err
@@ -78,4 +85,27 @@ func (p *ufcProvider) NextEvent(ctx context.Context) (string, string, bool, erro
 		name = ev.ShortName
 	}
 	return name, stUTC.UTC().Format(time.RFC3339), true, nil
+}
+
+// ---- Context options for provider behavior ----
+
+type ctxKey int
+
+const (
+	ctxKeyUFCIgnoreContender ctxKey = iota
+)
+
+// WithUFCIgnoreContender annotates ctx with whether to ignore Contender Series
+// when selecting the next UFC event. If not set, providers default to ignoring.
+func WithUFCIgnoreContender(ctx context.Context, ignore bool) context.Context {
+	return context.WithValue(ctx, ctxKeyUFCIgnoreContender, ignore)
+}
+
+func ufcIgnoreContenderFromContext(ctx context.Context) (bool, bool) {
+	v := ctx.Value(ctxKeyUFCIgnoreContender)
+	if v == nil {
+		return false, false
+	}
+	b, ok := v.(bool)
+	return b, ok
 }

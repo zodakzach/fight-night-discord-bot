@@ -87,7 +87,7 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	now := time.Now().UTC()
 	tomorrow := now.Add(24 * time.Hour)
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
+	getNextEventFunc = func(_ context.Context, _ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
 		return "UFC Fight Night: Test", tomorrow.In(loc), true, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
@@ -127,7 +127,7 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 
 	// Force no upcoming event
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
+	getNextEventFunc = func(_ context.Context, _ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
 		return "", time.Time{}, false, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
@@ -290,7 +290,7 @@ func TestHandleNextEvent_ProviderErrorAndUnsupportedOrg(t *testing.T) {
 	mgr := sources.NewManager()
 	mgr.Register("ufc", &fakeProvider{})
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
+	getNextEventFunc = func(_ context.Context, _ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
 		return "", time.Time{}, false, assertErr{}
 	}
 

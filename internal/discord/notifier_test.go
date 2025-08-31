@@ -78,7 +78,7 @@ func TestNotifyGuild_SendsAndMarksPosted(t *testing.T) {
 	ev := sources.Event{Name: "Test Event", Date: now.Format(time.RFC3339)}
 	// Stub tz-aware pick to today
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
+	getNextEventFunc = func(_ context.Context, _ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
 		return ev.Name, now.In(loc), true, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
