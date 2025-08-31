@@ -12,11 +12,18 @@ import (
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
 
-// fakeProvider returns fixed events for tests.
-type fakeProv struct{ events []sources.Event }
+// fakeProv implements sources.Provider for tests.
+type fakeProv struct {
+	name string
+	at   time.Time
+	ok   bool
+}
 
-func (f *fakeProv) FetchEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]sources.Event, error) {
-	return f.events, nil
+func (f *fakeProv) NextEvent(_ context.Context) (string, string, bool, error) {
+	if !f.ok {
+		return "", "", false, nil
+	}
+	return f.name, f.at.UTC().Format(time.RFC3339), true, nil
 }
 
 func TestParseHHMM(t *testing.T) {
@@ -69,10 +76,16 @@ func TestNotifyGuild_SendsAndMarksPosted(t *testing.T) {
 	now := time.Now().UTC()
 	todayKey := now.Format("2006-01-02")
 	ev := sources.Event{Name: "Test Event", Date: now.Format(time.RFC3339)}
+	// Stub tz-aware pick to today
+	oldGet := getNextEventFunc
+	getNextEventFunc = func(_ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
+		return ev.Name, now.In(loc), true, nil
+	}
+	defer func() { getNextEventFunc = oldGet }()
 
 	// Provider manager
 	mgr := sources.NewManager()
-	mgr.Register("ufc", &fakeProv{events: []sources.Event{ev}})
+	mgr.Register("ufc", &fakeProv{ok: true, name: ev.Name, at: now})
 
 	// Capture outbound message
 	sent := 0
@@ -113,7 +126,7 @@ func TestNotifyGuild_SkipsWhenNoOrgOrDisabled(t *testing.T) {
 	// No org set, notify off by default
 
 	mgr := sources.NewManager()
-	mgr.Register("ufc", &fakeProv{events: nil})
+	mgr.Register("ufc", &fakeProv{})
 
 	sent := 0
 	old := sendChannelMessage

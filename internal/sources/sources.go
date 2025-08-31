@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
 )
@@ -16,9 +17,10 @@ type Event struct {
 	Date      string // RFC3339
 }
 
-// Provider fetches events for a specific organization over a range.
+// Provider fetches events for a specific organization and exposes next-event.
 type Provider interface {
-	FetchEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]Event, error)
+	// NextEvent returns the next or ongoing event; time is RFC3339 UTC.
+	NextEvent(ctx context.Context) (name string, atUTC string, ok bool, err error)
 }
 
 // Manager resolves a Provider for a given org key (e.g., "ufc").
@@ -49,29 +51,31 @@ func (m *Manager) Orgs() []string {
 }
 
 // NewDefaultManager wires built-in providers for known orgs.
-// Today this registers UFC via the ESPN scraper client.
+// Today this registers UFC via the ESPN client adapter.
 func NewDefaultManager(httpc *http.Client, userAgent string) *Manager {
 	if httpc == nil {
 		httpc = http.DefaultClient
 	}
 	m := NewManager()
-	// UFC via ESPN client adapter
 	m.Register("ufc", &ufcProvider{c: espn.NewClient(httpc, userAgent)})
 	return m
 }
 
 // ufcProvider adapts the ESPN client to the generic Provider interface.
-// Use the espn.Client interface to allow testing with fakes.
-type ufcProvider struct{ c espn.Client }
+type ufcProvider struct{ c *espn.HTTPClient }
 
-func (p *ufcProvider) FetchEventsRange(ctx context.Context, startYYYYMMDD, endYYYYMMDD string) ([]Event, error) {
-	evs, err := p.c.FetchUFCEventsRange(ctx, startYYYYMMDD, endYYYYMMDD)
-	if err != nil {
-		return nil, err
+func (p *ufcProvider) NextEvent(ctx context.Context) (string, string, bool, error) {
+	// Selection strictly in UTC; conversion happens in discord/eventutil.
+	ev, _, stUTC, _, ok, err := p.c.FetchNextOrOngoingEventAndCard(ctx, []string{"Contender Series"}, time.Now)
+	if err != nil || !ok || ev == nil {
+		if err != nil {
+			return "", "", false, err
+		}
+		return "", "", false, nil
 	}
-	out := make([]Event, 0, len(evs))
-	for _, e := range evs {
-		out = append(out, Event{ID: e.ID, Name: e.Name, ShortName: e.ShortName, Date: e.Date})
+	name := ev.Name
+	if name == "" {
+		name = ev.ShortName
 	}
-	return out, nil
+	return name, stUTC.UTC().Format(time.RFC3339), true, nil
 }

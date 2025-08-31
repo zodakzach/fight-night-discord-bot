@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -82,11 +81,12 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 		return
 	}
 
-	// Require org to be explicitly set and have a provider
+	// Require org to be explicitly set (for display/reporting)
 	if !st.HasGuildOrg(guildID) {
 		return
 	}
 	org := st.GetGuildOrg(guildID)
+	// Provider is used for next-event selection
 	provider, ok := mgr.Provider(org)
 	if !ok {
 		logx.Warn("no provider for org", "guild_id", guildID, "org", org)
@@ -96,8 +96,8 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	loc, _ := guildLocation(st, cfg, guildID)
 	now := time.Now().In(loc)
 
-	// Use shared next-event selection and gate on "today" only.
-	_, nextAt, ok, err := pickNextEvent(provider, loc)
+	// Use provider-driven selection and gate on "today" only.
+	pickName, nextAt, ok, err := pickNextEvent(provider, loc)
 	if err != nil || !ok {
 		return
 	}
@@ -112,27 +112,12 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	if already {
 		return
 	}
-
-	// Re-fetch only today’s events for list formatting
-	events, err := provider.FetchEventsRange(context.Background(), postDayYYYYMMDD, postDayYYYYMMDD)
-	if err != nil {
-		logx.Error("events fetch error", "guild_id", guildID, "err", err)
-		return
-	}
-	var todays []sources.Event
-	for _, e := range events {
-		t, err := parseAPITime(e.Date)
-		if err != nil {
-			continue
-		}
-		if t.In(loc).Format("20060102") == postDayYYYYMMDD {
-			todays = append(todays, e)
-		}
-	}
-	if len(todays) == 0 {
-		return
-	}
-
+	// Build a lightweight one-event list from the selected pick for messaging.
+	todays := []sources.Event{{
+		Name:      pickName,
+		ShortName: pickName,
+		Date:      nextAt.UTC().Format(time.RFC3339),
+	}}
 	msg := buildMessage(org, todays, loc)
 	sent, err := sendChannelMessage(s, channelID, msg)
 	if err != nil {
@@ -163,12 +148,12 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 		return
 	}
 	org := st.GetGuildOrg(guildID)
+	loc, _ := guildLocation(st, cfg, guildID)
+	nowLocal := time.Now().In(loc)
 	provider, ok := mgr.Provider(org)
 	if !ok {
 		return
 	}
-	loc, _ := guildLocation(st, cfg, guildID)
-	nowLocal := time.Now().In(loc)
 	// We want to create the event exactly on the day before the event (at the guild's run hour).
 	// So: find the next upcoming event, get its local date, and only create if today == eventDate - 1 day.
 

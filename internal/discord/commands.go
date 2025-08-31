@@ -560,8 +560,11 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		return
 	}
 
-	// Resolve org/provider
+	// Resolve org (default to ufc) and provider
 	org := st.GetGuildOrg(ic.GuildID)
+	if org == "" {
+		org = "ufc"
+	}
 	provider, ok := mgr.Provider(org)
 	if !ok {
 		replyEphemeral(s, ic, "Unsupported org provider")
@@ -571,7 +574,7 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	// Timezone selection for display and date filtering
 	loc, _ := guildLocation(st, cfg, ic.GuildID)
 
-	// Use shared next-event selection logic
+	// Use provider to select next/ongoing event in guild TZ
 	pickName, pickAt, ok, err := pickNextEvent(provider, loc)
 	if err != nil {
 		replyEphemeral(s, ic, "Error fetching events: "+err.Error())
@@ -744,17 +747,17 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	// Timezone selection for display
 	loc, tzName := guildLocation(st, cfg, ic.GuildID)
 
-	// Resolve org/provider
+	// Resolve org (for display) and ensure we have a provider registered for it
 	org := st.GetGuildOrg(ic.GuildID)
 	if org == "" {
 		org = "ufc"
 	}
-	provider, ok := mgr.Provider(org)
-	if !ok {
+	if _, ok := mgr.Provider(org); !ok {
 		_ = editInteractionResponse(s, ic, "Unsupported organization for next-event. Try /set-org to a supported one.")
 		return
 	}
 
+	provider, _ := mgr.Provider(org)
 	nextName, nextAt, ok, err := pickNextEvent(provider, loc)
 	if err != nil {
 		_ = editInteractionResponse(s, ic, "Error fetching events. Please try again later.")
