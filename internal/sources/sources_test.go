@@ -8,8 +8,8 @@ import (
 // fakeProvider is a minimal Provider for manager tests.
 type fakeProvider struct{}
 
-func (f *fakeProvider) NextEvent(ctx context.Context) (string, string, bool, error) {
-	return "", "", false, nil
+func (f *fakeProvider) NextEvent(ctx context.Context) (*Event, bool, error) {
+	return nil, false, nil
 }
 
 func TestManager_RegisterAndLookup(t *testing.T) {

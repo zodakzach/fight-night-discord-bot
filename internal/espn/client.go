@@ -31,6 +31,17 @@ type Event struct {
 	// Extended: include competitions so callers can resolve full cards
 	// directly from the scoreboard payload when present.
 	Competitions []Competition `json:"competitions"`
+	// Optional links provided by ESPN (when present in payload)
+	Links []struct {
+		Href      string   `json:"href"`
+		Text      string   `json:"text"`
+		ShortText string   `json:"shortText"`
+		Rel       []string `json:"rel"`
+	} `json:"links"`
+	// Optional logos/images for the event
+	Logos []struct {
+		Href string `json:"href"`
+	} `json:"logos"`
 }
 
 // Root represents the ESPN UFC scoreboard root document (subset).

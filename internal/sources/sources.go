@@ -4,23 +4,48 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/espn"
 )
 
-// Event is a normalized MMA event used by higher-level features.
+// Link represents an external link related to an event (e.g., ESPN page).
+type Link struct {
+	Title string
+	URL   string
+}
+
+// Bout is a normalized fight within an event card.
+type Bout struct {
+	WeightClass string
+	RedName     string
+	RedRecord   string
+	BlueName    string
+	BlueRecord  string
+	Winner      string
+	// Scheduled is RFC3339 UTC if known
+	Scheduled string
+}
+
+// Event is the bot's normalized representation for an MMA event across orgs.
+// All times are RFC3339 in UTC; presentation layers convert to a guild TZ.
 type Event struct {
+	Org       string
 	ID        string
 	Name      string
 	ShortName string
-	Date      string // RFC3339
+	Start     string // RFC3339 UTC
+	End       string // RFC3339 UTC (may be empty)
+	BannerURL string // Optional image to use in embeds
+	Links     []Link
+	Bouts     []Bout
 }
 
 // Provider fetches events for a specific organization and exposes next-event.
 type Provider interface {
-	// NextEvent returns the next or ongoing event; time is RFC3339 UTC.
-	NextEvent(ctx context.Context) (name string, atUTC string, ok bool, err error)
+	// NextEvent returns the next or ongoing event normalized to the Event type.
+	NextEvent(ctx context.Context) (*Event, bool, error)
 }
 
 // Manager resolves a Provider for a given org key (e.g., "ufc").
@@ -64,7 +89,7 @@ func NewDefaultManager(httpc *http.Client, userAgent string) *Manager {
 // ufcProvider adapts the ESPN client to the generic Provider interface.
 type ufcProvider struct{ c *espn.HTTPClient }
 
-func (p *ufcProvider) NextEvent(ctx context.Context) (string, string, bool, error) {
+func (p *ufcProvider) NextEvent(ctx context.Context) (*Event, bool, error) {
 	// Selection strictly in UTC; conversion happens in discord/eventutil.
 	// Default behavior: ignore Contender Series unless context overrides.
 	ignores := []string{"Contender Series"}
@@ -73,18 +98,72 @@ func (p *ufcProvider) NextEvent(ctx context.Context) (string, string, bool, erro
 			ignores = nil
 		}
 	}
-	ev, _, stUTC, _, ok, err := p.c.FetchNextOrOngoingEventAndCard(ctx, ignores, time.Now)
+	ev, fights, stUTC, enUTC, ok, err := p.c.FetchNextOrOngoingEventAndCard(ctx, ignores, time.Now)
 	if err != nil || !ok || ev == nil {
 		if err != nil {
-			return "", "", false, err
+			return nil, false, err
 		}
-		return "", "", false, nil
+		return nil, false, nil
 	}
 	name := ev.Name
 	if name == "" {
 		name = ev.ShortName
 	}
-	return name, stUTC.UTC().Format(time.RFC3339), true, nil
+	// Map ESPN fights to normalized bouts
+	bouts := make([]Bout, 0, len(fights))
+	for _, f := range fights {
+		sched := ""
+		if !f.Scheduled.IsZero() {
+			sched = f.Scheduled.UTC().Format(time.RFC3339)
+		}
+		bouts = append(bouts, Bout{
+			WeightClass: f.WeightClass,
+			RedName:     f.RedName,
+			RedRecord:   f.RedRecord,
+			BlueName:    f.BlueName,
+			BlueRecord:  f.BlueRecord,
+			Winner:      f.Winner,
+			Scheduled:   sched,
+		})
+	}
+	// Map links where available with friendlier titles
+	links := make([]Link, 0, len(ev.Links))
+	for _, l := range ev.Links {
+		if l.Href == "" {
+			continue
+		}
+		raw := firstNonEmpty(l.Text, l.ShortText)
+		title := raw
+		if strings.EqualFold(strings.TrimSpace(raw), "gamecast") {
+			title = "Event Page"
+		}
+		if strings.TrimSpace(title) == "" {
+			title = "Link"
+		}
+		links = append(links, Link{Title: title, URL: l.Href})
+	}
+	// Attempt to pick a banner image from event logos when available
+	banner := ""
+	if len(ev.Logos) > 0 && strings.TrimSpace(ev.Logos[0].Href) != "" {
+		banner = ev.Logos[0].Href
+	}
+	start := stUTC.UTC().Format(time.RFC3339)
+	end := ""
+	if !enUTC.IsZero() {
+		end = enUTC.UTC().Format(time.RFC3339)
+	}
+	out := &Event{
+		Org:       "ufc",
+		ID:        ev.ID,
+		Name:      name,
+		ShortName: ev.ShortName,
+		Start:     start,
+		End:       end,
+		BannerURL: banner,
+		Links:     links,
+		Bouts:     bouts,
+	}
+	return out, true, nil
 }
 
 // ---- Context options for provider behavior ----
@@ -108,4 +187,14 @@ func ufcIgnoreContenderFromContext(ctx context.Context) (bool, bool) {
 	}
 	b, ok := v.(bool)
 	return b, ok
+}
+
+// firstNonEmpty returns the first non-empty (after trimming) string.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

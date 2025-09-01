@@ -19,11 +19,11 @@ type fakeProv struct {
 	ok   bool
 }
 
-func (f *fakeProv) NextEvent(_ context.Context) (string, string, bool, error) {
+func (f *fakeProv) NextEvent(_ context.Context) (*sources.Event, bool, error) {
 	if !f.ok {
-		return "", "", false, nil
+		return nil, false, nil
 	}
-	return f.name, f.at.UTC().Format(time.RFC3339), true, nil
+	return &sources.Event{Org: "ufc", Name: f.name, Start: f.at.UTC().Format(time.RFC3339)}, true, nil
 }
 
 func TestParseHHMM(t *testing.T) {
@@ -45,8 +45,8 @@ func TestParseHHMM(t *testing.T) {
 func TestBuildMessage_FormatsHeaderAndLines(t *testing.T) {
 	loc := time.UTC
 	evs := []sources.Event{
-		{Name: "Event A", Date: "2025-01-02T15:04:00Z"},
-		{ShortName: "Event B", Date: "2025-01-02T18:30:00Z"},
+		{Name: "Event A", Start: "2025-01-02T15:04:00Z"},
+		{ShortName: "Event B", Start: "2025-01-02T18:30:00Z"},
 	}
 	msg := buildMessage("ufc", evs, loc)
 	if !strings.HasPrefix(msg, "UFC Fight Night Alert:\n") {
@@ -75,11 +75,11 @@ func TestNotifyGuild_SendsAndMarksPosted(t *testing.T) {
 	// Event today in UTC
 	now := time.Now().UTC()
 	todayKey := now.Format("2006-01-02")
-	ev := sources.Event{Name: "Test Event", Date: now.Format(time.RFC3339)}
+	ev := sources.Event{Name: "Test Event", Start: now.Format(time.RFC3339)}
 	// Stub tz-aware pick to today
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ context.Context, _ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
-		return ev.Name, now.In(loc), true, nil
+	getNextEventFunc = func(_ context.Context, _ sources.Provider) (*sources.Event, bool, error) {
+		return &sources.Event{Org: "ufc", Name: ev.Name, Start: now.UTC().Format(time.RFC3339)}, true, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
 
@@ -90,13 +90,15 @@ func TestNotifyGuild_SendsAndMarksPosted(t *testing.T) {
 	// Capture outbound message
 	sent := 0
 	var lastMsg string
-	old := sendChannelMessage
-	sendChannelMessage = func(_ *discordgo.Session, _ string, content string) (*discordgo.Message, error) {
+	old := sendChannelMessageComplex
+	sendChannelMessageComplex = func(_ *discordgo.Session, _ string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
 		sent++
-		lastMsg = content
-		return &discordgo.Message{Content: content}, nil
+		if msg != nil {
+			lastMsg = msg.Content
+		}
+		return &discordgo.Message{Content: lastMsg}, nil
 	}
-	defer func() { sendChannelMessage = old }()
+	defer func() { sendChannelMessageComplex = old }()
 
 	// Run
 	s := &discordgo.Session{}
@@ -129,12 +131,12 @@ func TestNotifyGuild_SkipsWhenNoOrgOrDisabled(t *testing.T) {
 	mgr.Register("ufc", &fakeProv{})
 
 	sent := 0
-	old := sendChannelMessage
-	sendChannelMessage = func(_ *discordgo.Session, _ string, content string) (*discordgo.Message, error) {
+	old := sendChannelMessageComplex
+	sendChannelMessageComplex = func(_ *discordgo.Session, _ string, _ *discordgo.MessageSend) (*discordgo.Message, error) {
 		sent++
 		return &discordgo.Message{}, nil
 	}
-	defer func() { sendChannelMessage = old }()
+	defer func() { sendChannelMessageComplex = old }()
 
 	s := &discordgo.Session{}
 	cfg := config.Config{TZ: "UTC"}

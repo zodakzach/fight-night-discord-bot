@@ -20,14 +20,14 @@ type fakeProvider struct {
 	err  error
 }
 
-func (f *fakeProvider) NextEvent(_ context.Context) (string, string, bool, error) {
+func (f *fakeProvider) NextEvent(_ context.Context) (*sources.Event, bool, error) {
 	if f.err != nil {
-		return "", "", false, f.err
+		return nil, false, f.err
 	}
 	if !f.ok {
-		return "", "", false, nil
+		return nil, false, nil
 	}
-	return f.name, f.at.UTC().Format(time.RFC3339), true, nil
+	return &sources.Event{Org: "ufc", Name: f.name, Start: f.at.UTC().Format(time.RFC3339)}, true, nil
 }
 
 func TestHandleStatus_UsesDefaultTZWhenUnset(t *testing.T) {
@@ -87,8 +87,8 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	now := time.Now().UTC()
 	tomorrow := now.Add(24 * time.Hour)
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ context.Context, _ sources.Provider, loc *time.Location) (string, time.Time, bool, error) {
-		return "UFC Fight Night: Test", tomorrow.In(loc), true, nil
+	getNextEventFunc = func(_ context.Context, _ sources.Provider) (*sources.Event, bool, error) {
+		return &sources.Event{Org: "ufc", Name: "UFC Fight Night: Test", Start: tomorrow.UTC().Format(time.RFC3339)}, true, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
 	mgr := sources.NewDefaultManager(nil, "test-agent")
@@ -109,8 +109,14 @@ func TestHandleNextEvent_FindsUpcoming(t *testing.T) {
 	}
 	oldDefer := deferInteractionResponse
 	deferInteractionResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
+	// Avoid real HTTP calls for embed edit
+	oldEmb := editInteractionEmbeds
+	editInteractionEmbeds = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ []*discordgo.MessageEmbed) error {
+		return nil
+	}
 	defer func() { editInteractionResponse = old }()
 	defer func() { deferInteractionResponse = oldDefer }()
+	defer func() { editInteractionEmbeds = oldEmb }()
 
 	handleNextEvent(s, ic, st, cfg, mgr)
 
@@ -127,8 +133,8 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 
 	// Force no upcoming event
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ context.Context, _ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
-		return "", time.Time{}, false, nil
+	getNextEventFunc = func(_ context.Context, _ sources.Provider) (*sources.Event, bool, error) {
+		return nil, false, nil
 	}
 	defer func() { getNextEventFunc = oldGet }()
 	mgr := sources.NewManager()
@@ -142,8 +148,14 @@ func TestHandleNextEvent_NoneFound(t *testing.T) {
 	}
 	oldDefer := deferInteractionResponse
 	deferInteractionResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
+	// Avoid real HTTP calls for embed edit
+	oldEmb := editInteractionEmbeds
+	editInteractionEmbeds = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ []*discordgo.MessageEmbed) error {
+		return nil
+	}
 	defer func() { editInteractionResponse = old }()
 	defer func() { deferInteractionResponse = oldDefer }()
+	defer func() { editInteractionEmbeds = oldEmb }()
 
 	handleNextEvent(s, ic, st, cfg, mgr)
 
@@ -290,8 +302,8 @@ func TestHandleNextEvent_ProviderErrorAndUnsupportedOrg(t *testing.T) {
 	mgr := sources.NewManager()
 	mgr.Register("ufc", &fakeProvider{})
 	oldGet := getNextEventFunc
-	getNextEventFunc = func(_ context.Context, _ sources.Provider, _ *time.Location) (string, time.Time, bool, error) {
-		return "", time.Time{}, false, assertErr{}
+	getNextEventFunc = func(_ context.Context, _ sources.Provider) (*sources.Event, bool, error) {
+		return nil, false, assertErr{}
 	}
 
 	var got string
@@ -302,8 +314,14 @@ func TestHandleNextEvent_ProviderErrorAndUnsupportedOrg(t *testing.T) {
 		return nil
 	}
 	deferInteractionResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
+	// Avoid real HTTP calls for embed edit
+	oldEmb := editInteractionEmbeds
+	editInteractionEmbeds = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ []*discordgo.MessageEmbed) error {
+		return nil
+	}
 	defer func() { editInteractionResponse = oldEdit }()
 	defer func() { deferInteractionResponse = oldDefer }()
+	defer func() { editInteractionEmbeds = oldEmb }()
 
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{GuildID: "g1"}}
 	handleNextEvent(s, ic, st, cfg, mgr)

@@ -94,7 +94,7 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 		return
 	}
 
-	loc, _ := guildLocation(st, cfg, guildID)
+	loc, tz := guildLocation(st, cfg, guildID)
 	now := time.Now().In(loc)
 
 	// Use provider-driven selection and gate on "today" only.
@@ -103,10 +103,15 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	if org == "ufc" {
 		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
 	}
-	pickName, nextAt, ok, err := pickNextEvent(ctx, provider, loc)
+	evt, ok, err := pickNextEvent(ctx, provider)
 	if err != nil || !ok {
 		return
 	}
+	stUTC, err := parseAPITime(evt.Start)
+	if err != nil {
+		return
+	}
+	nextAt := stUTC.In(loc)
 	postDayYYYYMMDD := nextAt.In(loc).Format("20060102")
 	if now.Format("20060102") != postDayYYYYMMDD {
 		// Not the event day; skip posting.
@@ -120,12 +125,19 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	}
 	// Build a lightweight one-event list from the selected pick for messaging.
 	todays := []sources.Event{{
-		Name:      pickName,
-		ShortName: pickName,
-		Date:      nextAt.UTC().Format(time.RFC3339),
+		Org:       org,
+		Name:      evt.Name,
+		ShortName: evt.ShortName,
+		Start:     nextAt.UTC().Format(time.RFC3339),
 	}}
 	msg := buildMessage(org, todays, loc)
-	sent, err := sendChannelMessage(s, channelID, msg)
+	// Build embed for the event details
+	emb := buildEventEmbed(strings.ToUpper(org), tz, loc, evt)
+	toSend := &discordgo.MessageSend{Content: msg}
+	if emb != nil {
+		toSend.Embeds = []*discordgo.MessageEmbed{emb}
+	}
+	sent, err := sendChannelMessageComplex(s, channelID, toSend)
 	if err != nil {
 		logx.Error("send message error", "guild_id", guildID, "err", err)
 		return
@@ -169,12 +181,15 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 	if org == "ufc" {
 		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
 	}
-	pickName, pickAt, ok, err := pickNextEvent(ctx, provider, loc)
+	evt, ok, err := pickNextEvent(ctx, provider)
 	if err != nil || !ok {
 		return
 	}
-
-	evLocal := pickAt.In(loc)
+	stUTC, err := parseAPITime(evt.Start)
+	if err != nil {
+		return
+	}
+	evLocal := stUTC.In(loc)
 	evDateKey := evLocal.Format("2006-01-02")
 	// Only create on the day before the event
 	if nowLocal.Format("2006-01-02") != evLocal.AddDate(0, 0, -1).Format("2006-01-02") {
@@ -186,11 +201,11 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 	}
 
 	// Create an EXTERNAL scheduled event at the event start time; end time = +3h.
-	start := pickAt
+	start := stUTC.In(loc)
 	end := start.Add(3 * time.Hour)
 	// Manage Events permission is required for the bot; if missing, this will fail.
 	params := &discordgo.GuildScheduledEventParams{
-		Name:               strings.ToUpper(org) + ": " + pickName,
+		Name:               strings.ToUpper(org) + ": " + evt.Name,
 		Description:        "Auto-created by Fight Night bot",
 		ScheduledStartTime: &start,
 		ScheduledEndTime:   &end,
@@ -198,13 +213,13 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 		EntityType:         discordgo.GuildScheduledEventEntityTypeExternal,
 		EntityMetadata:     &discordgo.GuildScheduledEventEntityMetadata{Location: "TBD"},
 	}
-	ev, err := s.GuildScheduledEventCreate(guildID, params)
+	sev, err := s.GuildScheduledEventCreate(guildID, params)
 	if err != nil {
 		logx.Warn("scheduled event create failed", "guild_id", guildID, "org", org, "err", err)
 		return
 	}
 	// Mark by the actual event date to avoid duplicates for the same event
-	st.MarkScheduledEvent(guildID, org, evDateKey, ev.ID)
+	st.MarkScheduledEvent(guildID, org, evDateKey, sev.ID)
 }
 
 func buildMessage(org string, events []sources.Event, loc *time.Location) string {
@@ -216,7 +231,8 @@ func buildMessage(org string, events []sources.Event, loc *time.Location) string
 			name = e.ShortName
 		}
 		tstr := ""
-		if t, err := parseAPITime(e.Date); err == nil {
+		ts := e.Start
+		if t, err := parseAPITime(ts); err == nil {
 			tstr = t.In(loc).Format("Mon 3:04 PM")
 		}
 		if tstr != "" {
@@ -227,12 +243,6 @@ func buildMessage(org string, events []sources.Event, loc *time.Location) string
 	}
 	b.WriteString("\nI'll check daily and post here when there's a " + strings.ToUpper(org) + " event.")
 	return b.String()
-}
-
-// sendChannelMessage is an indirection for tests to capture outbound messages
-// without performing real Discord API calls.
-var sendChannelMessage = func(s *discordgo.Session, channelID, content string) (*discordgo.Message, error) {
-	return s.ChannelMessageSend(channelID, content)
 }
 
 func parseHHMM(s string) (int, int, error) {

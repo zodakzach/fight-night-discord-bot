@@ -624,7 +624,7 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	if org == "ufc" {
 		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
 	}
-	pickName, pickAt, ok, err := pickNextEvent(ctx, provider, loc)
+	evt, ok, err := pickNextEvent(ctx, provider)
 	if err != nil {
 		replyEphemeral(s, ic, "Error fetching events: "+err.Error())
 		return
@@ -635,6 +635,12 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 
 	// Prevent duplicates: check by the event's local date
+	stUTC, err := parseAPITime(evt.Start)
+	if err != nil {
+		replyEphemeral(s, ic, "Error parsing event time.")
+		return
+	}
+	pickAt := stUTC.In(loc)
 	evDateKey := pickAt.In(loc).Format("2006-01-02")
 	if st.HasScheduledEvent(ic.GuildID, org, evDateKey) {
 		replyEphemeral(s, ic, "An event already exists for "+evDateKey+".")
@@ -644,7 +650,7 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	startAt := pickAt
 	endAt := startAt.Add(3 * time.Hour)
 	params := &discordgo.GuildScheduledEventParams{
-		Name:               strings.ToUpper(org) + ": " + pickName,
+		Name:               strings.ToUpper(org) + ": " + evt.Name,
 		Description:        "Created by dev command",
 		ScheduledStartTime: &startAt,
 		ScheduledEndTime:   &endAt,
@@ -820,7 +826,7 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	if org == "ufc" {
 		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
 	}
-	nextName, nextAt, ok, err := pickNextEvent(ctx, provider, loc)
+	ev, ok, err := pickNextEvent(ctx, provider)
 	if err != nil {
 		_ = editInteractionResponse(s, ic, "Error fetching events. Please try again later.")
 		return
@@ -829,9 +835,14 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		_ = editInteractionResponse(s, ic, "No upcoming "+strings.ToUpper(org)+" events found in the next 30 days.")
 		return
 	}
-
-	localTime := nextAt.In(loc)
-	until := time.Until(nextAt).Truncate(time.Minute)
+	// Parse event start for display
+	startUTC, err := parseAPITime(ev.Start)
+	if err != nil {
+		_ = editInteractionResponse(s, ic, "Error parsing event time.")
+		return
+	}
+	localTime := startUTC.In(loc)
+	until := time.Until(startUTC).Truncate(time.Minute)
 	msg := ""
 	if until >= 0 {
 		d := int(until.Hours()) / 24
@@ -845,7 +856,7 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		} else {
 			rel = fmt.Sprintf("%dm", m)
 		}
-		msg = fmt.Sprintf("Next %s event: %s\nWhen: %s (%s) — in %s", strings.ToUpper(org), nextName, localTime.Format("Mon Jan 2, 3:04 PM MST"), tzName, rel)
+		msg = fmt.Sprintf("Next %s event: %s\nWhen: %s (%s) — in %s", strings.ToUpper(org), ev.Name, localTime.Format("Mon Jan 2, 3:04 PM MST"), tzName, rel)
 	} else {
 		ago := -until
 		h := int(ago.Hours())
@@ -856,7 +867,12 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 		} else {
 			rel = fmt.Sprintf("%dm ago", m)
 		}
-		msg = fmt.Sprintf("Today’s %s event: %s\nStarted: %s (%s) — %s", strings.ToUpper(org), nextName, localTime.Format("3:04 PM"), tzName, rel)
+		msg = fmt.Sprintf("Today’s %s event: %s\nStarted: %s (%s) — %s", strings.ToUpper(org), ev.Name, localTime.Format("3:04 PM"), tzName, rel)
 	}
 	_ = editInteractionResponse(s, ic, msg)
+
+	// Attempt to add a rich embed with card details (best-effort; ignore errors)
+	if emb := buildEventEmbed(strings.ToUpper(org), tzName, loc, ev); emb != nil {
+		_ = editInteractionEmbeds(s, ic, []*discordgo.MessageEmbed{emb})
+	}
 }
