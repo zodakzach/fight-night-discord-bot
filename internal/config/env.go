@@ -2,7 +2,9 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/joho/godotenv"
 	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
@@ -59,4 +61,47 @@ func mustEnv(k string) string {
 		logx.Fatal("missing required env var", "key", k)
 	}
 	return v
+}
+
+// LiveESPNEnabled returns true when live ESPN integration tests should run.
+// It best-effort loads .env and checks common opt-in env vars
+// accepting 1/true/yes (case-insensitive).
+// It does not require DISCORD_TOKEN or full Config loading.
+func LiveESPNEnabled() bool {
+	loadDotEnvUpward()
+	for _, k := range []string{"ESPN_LIVE", "RUN_LIVE_ESPN"} {
+		v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
+		switch v {
+		case "1", "true", "yes":
+			return true
+		}
+	}
+	return false
+}
+
+var dotenvOnce sync.Once
+
+// loadDotEnvUpward attempts to load a .env starting from the current working
+// directory and walking up a few levels. Non-fatal if none is found.
+func loadDotEnvUpward() {
+	dotenvOnce.Do(func() {
+		dir, err := os.Getwd()
+		if err != nil {
+			return
+		}
+		// Walk up to 6 levels to find a .env (covers typical repo layouts).
+		for i := 0; i < 6; i++ {
+			candidate := filepath.Join(dir, ".env")
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				if loadErr := godotenv.Overload(candidate); loadErr == nil {
+					return
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	})
 }
