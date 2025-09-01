@@ -33,12 +33,17 @@ Representative commands (names/args may vary slightly based on current implement
 - `/status`: Show current settings for this guild.
 - `/help`: Show available commands and usage.
 
+Dev-only (registered only when `GUILD_ID` is set):
+- `/create-event`: [dev] Create a Discord Scheduled Event for the next org event (requires Manage Events on the guild; used for testing scheduled-events behavior).
+- `/create-announcement`: [dev] Post the next event message+embed now via the notifier path (requires Manage Channels in the target channel). Useful to preview the exact notifier output in Discord without waiting for the scheduler or event day.
+
 ## Getting Started
 - Set org: run `/set-org org:<ufc>`.
 - Pick channel: run `/set-channel channel:<#your-channel>`.
 - Optional timezone: run `/set-tz tz:<Region/City>` (defaults to `TZ` env).
 - Enable notifications: run `/notify on` (notifications are off by default).
 - Verify: run `/next-event` to see the next event for your org.
+  - For a full preview of the daily post, use the dev command `/create-announcement` in your dev guild.
 
 Notes
 - Posts run daily at the configured hour (per guild via `/set-run-hour`, default from `RUN_AT`) in your guild's timezone; event-day posts only. Minutes are ignored.
@@ -101,6 +106,8 @@ LOG_LEVEL=info
 - Build binary: `go build -o bin/fight-night-bot ./cmd/fight-night-bot`
 - Format/Vet: `go fmt ./... && go vet ./...`
 - Tests: `go test -race -cover ./...`
+  - Live ESPN integration tests are skipped by default; enable with `ESPN_LIVE=1` if you want to exercise network calls.
+  - Notifier tests stub outbound Discord calls and pass under race and coverage.
 
 ## Deploy (Fly.io)
 Target: containerized deploy with a small persistent volume for SQLite.
@@ -116,9 +123,7 @@ Target: containerized deploy with a small persistent volume for SQLite.
 
 ## Roadmap
 - Sources: add more orgs (Bellator, PFL, ONE) via providers; health checks and fallbacks per provider.
-- Messaging: rich embeds (title, banner, links), start-time summaries, prelim/main-card breakdowns.
-- Reliability: HTTP retries with backoff, rate limiting, basic response caching, stricter time parsing.
-- Scheduling: hourly top-of-hour tick is in place; add DST edge-case tests/fixes, year-boundary range correctness, and resilience against clock drift.
+- Tests: add more tests and increase coverage.
 
 ## Contributing
 - Try it in a dev guild and share behavior logs or screenshots.

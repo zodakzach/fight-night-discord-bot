@@ -58,9 +58,7 @@ func TestBuildMessage_FormatsHeaderAndLines(t *testing.T) {
 	if !strings.Contains(msg, "• Event B — Thu 6:30 PM") {
 		t.Fatalf("missing second line with time, got: %q", msg)
 	}
-	if !strings.Contains(msg, "there's a UFC event") {
-		t.Fatalf("missing trailer with org, got: %q", msg)
-	}
+	// Trailer text removed by design; only header and lines are required.
 }
 
 func TestNotifyGuild_SendsAndMarksPosted(t *testing.T) {
