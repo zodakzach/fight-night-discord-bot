@@ -263,10 +263,14 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 	// Define top-level commands from centralized specs
 	cmds := applicationCommands()
 
-	// Dev-only helper command to create a scheduled event for the next org event.
-	devCmd := &discordgo.ApplicationCommand{
+	// Dev-only helper commands
+	devCreateEvent := &discordgo.ApplicationCommand{
 		Name:        "create-event",
 		Description: "[dev] Create a scheduled event for the next org event",
+	}
+	devCreateAnnouncement := &discordgo.ApplicationCommand{
+		Name:        "create-announcement",
+		Description: "[dev] Post the next event message+embed now",
 	}
 
 	appID := s.State.User.ID
@@ -276,10 +280,10 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 		names = append(names, c.Name)
 	}
 	if devGuild != "" {
-		// Include the dev-only command only for the dev guild registration.
-		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+1)
+		// Include the dev-only commands only for the dev guild registration.
+		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+2)
 		cmdsWithDev = append(cmdsWithDev, cmds...)
-		cmdsWithDev = append(cmdsWithDev, devCmd)
+		cmdsWithDev = append(cmdsWithDev, devCreateEvent, devCreateAnnouncement)
 		logx.Info("registering slash commands", "target", "guild", "app_id", appID, "guild_id", devGuild, "count", len(cmds), "names", names)
 		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmdsWithDev)
 		if err != nil {
@@ -405,6 +409,8 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 		handleNextEvent(s, ic, st, cfg, mgr)
 	case "create-event":
 		handleCreateEvent(s, ic, st, cfg, mgr)
+	case "create-announcement":
+		handleCreateAnnouncement(s, ic, st, cfg, mgr)
 	default:
 		replyEphemeral(s, ic, "Unknown command.")
 	}
@@ -666,6 +672,48 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	// Track by local date key to avoid duplicate creates
 	st.MarkScheduledEvent(ic.GuildID, org, evDateKey, ev.ID)
 	replyEphemeral(s, ic, "Scheduled event created: "+ev.Name)
+}
+
+// handleCreateAnnouncement: dev-only helper to post the next event's notifier message/embed immediately.
+func handleCreateAnnouncement(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+	// Basic checks
+	if ic.GuildID == "" {
+		replyEphemeral(s, ic, "Use in a server")
+		return
+	}
+	if !st.HasGuildOrg(ic.GuildID) {
+		replyEphemeral(s, ic, "Set an organization first with /set-org")
+		return
+	}
+
+	// Choose target channel: prefer configured channel, else current channel
+	chID := ic.ChannelID
+	if ch, _, _ := st.GetGuildSettings(ic.GuildID); strings.TrimSpace(ch) != "" {
+		chID = ch
+	}
+
+	// Permission: require Manage Channels or Admin in the target channel to reduce abuse
+	if ic.Member == nil || ic.Member.User == nil {
+		replyEphemeral(s, ic, "Missing member context")
+		return
+	}
+	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, chID)
+	if err != nil {
+		replyEphemeral(s, ic, "Could not check permissions.")
+		return
+	}
+	if !ok {
+		replyEphemeral(s, ic, "You need Manage Channels permission to use this (dev).")
+		return
+	}
+
+	// Use the notifier code path with force=true to ensure it posts even when not event day.
+	posted, reason := notifyGuildCore(s, st, ic.GuildID, mgr, cfg, true, chID)
+	if posted {
+		replyEphemeral(s, ic, "Announcement posted to <#"+chID+">")
+		return
+	}
+	replyEphemeral(s, ic, "Skipped: "+reason)
 }
 
 func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {

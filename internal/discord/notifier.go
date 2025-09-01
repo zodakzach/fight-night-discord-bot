@@ -72,56 +72,68 @@ func scheduleHourly(fn func()) {
 }
 
 func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sources.Manager, cfg config.Config) {
-	channelID, _, lastPosted := st.GetGuildSettings(guildID)
+	// Production path: no force, no channel override
+	_, _ = notifyGuildCore(s, st, guildID, mgr, cfg, false, "")
+}
+
+// notifyGuildCore performs the same logic as notifyGuild, with extras to support
+// dev/testing via a force flag and an optional channel override. It returns whether
+// a message was posted and a human-readable reason when it didn’t.
+func notifyGuildCore(s *discordgo.Session, st *state.Store, guildID string, mgr *sources.Manager, cfg config.Config, force bool, channelOverride string) (bool, string) {
+	chConfigured, _, lastPosted := st.GetGuildSettings(guildID)
+	channelID := strings.TrimSpace(channelOverride)
 	if channelID == "" {
-		return
+		channelID = chConfigured
+	}
+	if channelID == "" {
+		return false, "No channel configured"
 	}
 
-	// Respect per-guild notify enabled flag (default enabled when unset)
-	if !st.GetGuildNotifyEnabled(guildID) {
-		return
+	// Respect per-guild notify enabled flag unless forced
+	if !force && !st.GetGuildNotifyEnabled(guildID) {
+		return false, "Notifications disabled"
 	}
 
 	// Require org to be explicitly set (for display/reporting)
 	if !st.HasGuildOrg(guildID) {
-		return
+		return false, "Organization not set"
 	}
 	org := st.GetGuildOrg(guildID)
 	// Provider is used for next-event selection
 	provider, ok := mgr.Provider(org)
 	if !ok {
 		logx.Warn("no provider for org", "guild_id", guildID, "org", org)
-		return
+		return false, "No provider for org"
 	}
 
 	loc, tz := guildLocation(st, cfg, guildID)
 	now := time.Now().In(loc)
 
-	// Use provider-driven selection and gate on "today" only.
+	// Use provider-driven selection and gate on "today" only unless forced.
 	// Build provider context with per-guild UFC options
 	ctx := context.Background()
 	if org == "ufc" {
 		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
 	}
-	evt, ok, err := pickNextEvent(ctx, provider)
-	if err != nil || !ok {
-		return
+	evt, okNext, err := pickNextEvent(ctx, provider)
+	if err != nil || !okNext {
+		return false, "No upcoming event"
 	}
 	stUTC, err := parseAPITime(evt.Start)
 	if err != nil {
-		return
+		return false, "Invalid event time"
 	}
 	nextAt := stUTC.In(loc)
 	postDayYYYYMMDD := nextAt.In(loc).Format("20060102")
-	if now.Format("20060102") != postDayYYYYMMDD {
-		// Not the event day; skip posting.
-		return
+	if !force && now.Format("20060102") != postDayYYYYMMDD {
+		// Not the event day; skip posting when not forced.
+		return false, "Not event day"
 	}
 	todayKey := nextAt.In(loc).Format("2006-01-02")
 
 	already := lastPosted != nil && lastPosted[org] == todayKey
-	if already {
-		return
+	if !force && already {
+		return false, "Already posted today"
 	}
 	// Build a lightweight one-event list from the selected pick for messaging.
 	todays := []sources.Event{{
@@ -137,10 +149,10 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 	if emb != nil {
 		toSend.Embeds = []*discordgo.MessageEmbed{emb}
 	}
-	sent, err := sendChannelMessageComplex(s, channelID, toSend)
-	if err != nil {
-		logx.Error("send message error", "guild_id", guildID, "err", err)
-		return
+	sent, sendErr := sendChannelMessageComplex(s, channelID, toSend)
+	if sendErr != nil {
+		logx.Error("send message error", "guild_id", guildID, "err", sendErr)
+		return false, "Send failed"
 	}
 
 	// If announcement mode is enabled and the channel supports it, attempt to crosspost.
@@ -150,12 +162,13 @@ func notifyGuild(s *discordgo.Session, st *state.Store, guildID string, mgr *sou
 			if _, xerr := s.ChannelMessageCrosspost(channelID, sent.ID); xerr != nil {
 				logx.Warn("crosspost failed", "guild_id", guildID, "channel_id", channelID, "message_id", sent.ID, "err", xerr)
 			}
-		} else {
-			// Not a news/announcement channel; skip crosspost silently.
 		}
 	}
 
-	st.MarkPosted(guildID, org, todayKey)
+	if !force {
+		st.MarkPosted(guildID, org, todayKey)
+	}
+	return true, "OK"
 }
 
 // ensureTomorrowScheduledEvent creates a Discord Scheduled Event the day before the
@@ -241,7 +254,6 @@ func buildMessage(org string, events []sources.Event, loc *time.Location) string
 			fmt.Fprintf(&b, "• %s\n", name)
 		}
 	}
-	b.WriteString("\nI'll check daily and post here when there's a " + strings.ToUpper(org) + " event.")
 	return b.String()
 }
 
