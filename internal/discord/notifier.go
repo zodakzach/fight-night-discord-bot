@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -100,7 +99,7 @@ func notifyGuildCore(s *discordgo.Session, st *state.Store, guildID string, mgr 
 	}
 	org := st.GetGuildOrg(guildID)
 	// Provider is used for next-event selection
-	provider, ok := mgr.Provider(org)
+	_, provider, ctx, ok := providerForGuild(st, mgr, guildID, false)
 	if !ok {
 		logx.Warn("no provider for org", "guild_id", guildID, "org", org)
 		return false, "No provider for org"
@@ -110,11 +109,6 @@ func notifyGuildCore(s *discordgo.Session, st *state.Store, guildID string, mgr 
 	now := time.Now().In(loc)
 
 	// Use provider-driven selection and gate on "today" only unless forced.
-	// Build provider context with per-guild UFC options
-	ctx := context.Background()
-	if org == "ufc" {
-		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
-	}
 	evt, okNext, err := pickNextEvent(ctx, provider)
 	if err != nil || !okNext {
 		return false, "No upcoming event"
@@ -181,7 +175,7 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 	org := st.GetGuildOrg(guildID)
 	loc, _ := guildLocation(st, cfg, guildID)
 	nowLocal := time.Now().In(loc)
-	provider, ok := mgr.Provider(org)
+	_, provider, ctx, ok := providerForGuild(st, mgr, guildID, false)
 	if !ok {
 		return
 	}
@@ -189,11 +183,6 @@ func ensureTomorrowScheduledEvent(s *discordgo.Session, st *state.Store, guildID
 	// So: find the next upcoming event, get its local date, and only create if today == eventDate - 1 day.
 
 	// Use the same next-event selection logic as the command.
-	// Build provider context with per-guild UFC options
-	ctx := context.Background()
-	if org == "ufc" {
-		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(guildID))
-	}
 	evt, ok, err := pickNextEvent(ctx, provider)
 	if err != nil || !ok {
 		return

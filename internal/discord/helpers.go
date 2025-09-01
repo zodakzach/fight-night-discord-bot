@@ -22,6 +22,27 @@ func hasManageOrAdmin(s *discordgo.Session, userID, channelID string) (bool, err
 	return false, nil
 }
 
+// requireManageOrAdmin checks for Manage Channels or Admin on a target channel and
+// replies with a suitable message when missing or when permission check fails.
+// Returns true when the caller has permission; false otherwise (and the caller
+// has already been replied to ephemerally).
+func requireManageOrAdmin(s *discordgo.Session, ic *discordgo.InteractionCreate, channelID string, notOKMsg string) bool {
+	if ic == nil || ic.Member == nil || ic.Member.User == nil {
+		_ = sendInteractionResponse(s, ic, "Could not check permissions.")
+		return false
+	}
+	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, channelID)
+	if err != nil {
+		_ = sendInteractionResponse(s, ic, "Could not check permissions.")
+		return false
+	}
+	if !ok {
+		_ = sendInteractionResponse(s, ic, notOKMsg)
+		return false
+	}
+	return true
+}
+
 // guildLocation resolves the guild's configured timezone (falling back to
 // global config when unset/invalid) and returns the location and tz name.
 func guildLocation(st *state.Store, cfg config.Config, guildID string) (*time.Location, string) {

@@ -207,14 +207,3 @@ func formatBouts(bs []sources.Bout, loc *time.Location) string {
 func safe(s string) string {
 	return strings.TrimSpace(s)
 }
-
-// editInteractionEmbeds allows tests to capture embed edits without real HTTP calls.
-var editInteractionEmbeds = func(s *discordgo.Session, ic *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed) error {
-	_, err := s.InteractionResponseEdit(ic.Interaction, &discordgo.WebhookEdit{Embeds: &embeds})
-	return err
-}
-
-// sendChannelMessageComplex is an indirection to send rich messages with content+embeds.
-var sendChannelMessageComplex = func(s *discordgo.Session, channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
-	return s.ChannelMessageSendComplex(channelID, msg)
-}

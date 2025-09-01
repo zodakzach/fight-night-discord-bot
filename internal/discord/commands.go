@@ -1,10 +1,8 @@
 package discord
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -14,358 +12,6 @@ import (
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
-
-// commandSpec holds the source-of-truth for a command definition and any extra
-// notes used for help text. We derive Discord registration and help content
-// from these specs to avoid duplication.
-type commandSpec struct {
-	Def  *discordgo.ApplicationCommand
-	Note string // Optional extra usage/help note
-}
-
-// currentSpecs stores the active command specs built during registration.
-var currentSpecs []commandSpec
-
-// commandSpecs builds the list of commands the bot supports using the
-// provided org choices for the /set-org command.
-func commandSpecs(orgs []string) []commandSpec {
-	// Build choices for orgs
-	orgChoices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(orgs))
-	for _, o := range orgs {
-		orgChoices = append(orgChoices, &discordgo.ApplicationCommandOptionChoice{Name: o, Value: o})
-	}
-	return []commandSpec{
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "notify",
-				Description: "Enable or disable fight-night posts for this guild",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "state",
-					Description: "Enable or disable notifications",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
-				}},
-			},
-			Note: "Requires org to be set (use /set-org)",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "events",
-				Description: "Enable or disable creating Scheduled Events (day-before)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "state",
-					Description: "Enable or disable scheduled events",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
-				}},
-			},
-			Note: "Creates a Discord Scheduled Event the day before fight night.",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-org",
-				Description: "Choose the organization (currently UFC only)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "org",
-					Description: "Organization",
-					Required:    true,
-					Choices:     orgChoices,
-				}},
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "org-settings",
-				Description: "Org-specific settings (UFC, etc.)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
-					Name:        "ufc",
-					Description: "UFC-specific settings",
-					Options: []*discordgo.ApplicationCommandOption{
-						{
-							Type:        discordgo.ApplicationCommandOptionSubCommand,
-							Name:        "contender-ignore",
-							Description: "Ignore UFC Contender Series events (default)",
-						},
-						{
-							Type:        discordgo.ApplicationCommandOptionSubCommand,
-							Name:        "contender-include",
-							Description: "Include UFC Contender Series events",
-						},
-					},
-				}},
-			},
-			Note: "Use: /org-settings ufc contender-ignore|contender-include",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-tz",
-				Description: "Set the guild's timezone (IANA name)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "tz",
-					Description: "Timezone, e.g., America/Los_Angeles",
-					Required:    true,
-				}},
-			},
-			Note: "Example: America/Los_Angeles",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-run-hour",
-				Description: "Set daily notification hour (0-23)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "hour",
-					Description: "Hour of day (0-23)",
-					Required:    true,
-				}},
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "status",
-				Description: "Show current bot settings for this guild",
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "help",
-				Description: "Show available commands and usage",
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-channel",
-				Description: "Pick the channel for notifications",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:         discordgo.ApplicationCommandOptionChannel,
-					Name:         "channel",
-					Description:  "Channel to use (default: this channel)",
-					Required:     false,
-					ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
-				}},
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-delivery",
-				Description: "Choose message delivery: regular message or announcement",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "mode",
-					Description: "Delivery mode",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "message", Value: "message"}, {Name: "announcement", Value: "announcement"}},
-				}},
-			},
-			Note: "Announcement mode publishes in Announcement channels and may require Manage Messages.",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "next-event",
-				Description: "Show the next event for the selected org",
-			},
-		},
-	}
-}
-
-func getSpecs() []commandSpec {
-	if currentSpecs == nil {
-		currentSpecs = commandSpecs([]string{"ufc"})
-	}
-	return currentSpecs
-}
-
-// applicationCommands converts specs to a list of discord ApplicationCommand definitions.
-func applicationCommands() []*discordgo.ApplicationCommand {
-	list := getSpecs()
-	out := make([]*discordgo.ApplicationCommand, 0, len(list))
-	for _, s := range list {
-		out = append(out, s.Def)
-	}
-	return out
-}
-
-// buildHelp returns a help message generated from specs, so it stays in sync
-// with the registered slash commands. The help omits the "help" command itself.
-func buildHelp() string {
-	var b strings.Builder
-	b.WriteString("Commands:\n")
-	for _, s := range getSpecs() {
-		if s.Def.Name == "help" { // avoid listing help in help
-			continue
-		}
-		usage := "/" + s.Def.Name
-		if len(s.Def.Options) > 0 {
-			parts := make([]string, 0, len(s.Def.Options))
-			for _, opt := range s.Def.Options {
-				seg := opt.Name + ":" + optionUsage(opt)
-				if !opt.Required {
-					seg = "[" + seg + "]"
-				}
-				parts = append(parts, seg)
-			}
-			usage += " " + strings.Join(parts, " ")
-		}
-		b.WriteString("- ")
-		b.WriteString(usage)
-		if desc := strings.TrimSpace(s.Def.Description); desc != "" {
-			b.WriteString(" — ")
-			b.WriteString(desc)
-		}
-		if note := strings.TrimSpace(s.Note); note != "" {
-			b.WriteString(". ")
-			b.WriteString(note)
-		}
-		b.WriteString("\n")
-	}
-	return b.String()
-}
-
-func optionUsage(opt *discordgo.ApplicationCommandOption) string {
-	// If choices exist, render like <a|b|c>
-	if len(opt.Choices) > 0 {
-		names := make([]string, 0, len(opt.Choices))
-		for _, c := range opt.Choices {
-			names = append(names, fmt.Sprint(c.Name))
-		}
-		return "<" + strings.Join(names, "|") + ">"
-	}
-	switch opt.Type {
-	case discordgo.ApplicationCommandOptionString:
-		return "<string>"
-	case discordgo.ApplicationCommandOptionInteger:
-		return "<number>"
-	case discordgo.ApplicationCommandOptionChannel:
-		return "#channel"
-	case discordgo.ApplicationCommandOptionBoolean:
-		return "<true|false>"
-	case discordgo.ApplicationCommandOptionUser:
-		return "@user"
-	default:
-		return "<value>"
-	}
-}
-
-func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manager) {
-	// Rebuild specs with dynamic org choices from the manager
-	orgs := []string{"ufc"}
-	if mgr != nil {
-		if o := mgr.Orgs(); len(o) > 0 {
-			orgs = o
-		}
-	}
-	currentSpecs = commandSpecs(orgs)
-	// Define top-level commands from centralized specs
-	cmds := applicationCommands()
-
-	// Dev-only helper commands
-	devCreateEvent := &discordgo.ApplicationCommand{
-		Name:        "create-event",
-		Description: "[dev] Create a scheduled event for the next org event",
-	}
-	devCreateAnnouncement := &discordgo.ApplicationCommand{
-		Name:        "create-announcement",
-		Description: "[dev] Post the next event message+embed now",
-	}
-
-	appID := s.State.User.ID
-	// Log the intent to register commands with context
-	names := make([]string, 0, len(cmds))
-	for _, c := range cmds {
-		names = append(names, c.Name)
-	}
-	if devGuild != "" {
-		// Include the dev-only commands only for the dev guild registration.
-		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+2)
-		cmdsWithDev = append(cmdsWithDev, cmds...)
-		cmdsWithDev = append(cmdsWithDev, devCreateEvent, devCreateAnnouncement)
-		logx.Info("registering slash commands", "target", "guild", "app_id", appID, "guild_id", devGuild, "count", len(cmds), "names", names)
-		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmdsWithDev)
-		if err != nil {
-			logx.Error("bulk overwrite commands", "err", err, "target", "guild", "app_id", appID, "guild_id", devGuild)
-			return
-		}
-		registered := make([]string, 0, len(res))
-		for _, c := range res {
-			registered = append(registered, c.Name)
-		}
-		logx.Info("commands registered", "target", "guild", "count", len(res), "names", registered)
-
-		// Clear global commands to avoid duplicates while developing with a dev guild.
-		logx.Info("clearing global commands due to dev guild configuration", "app_id", appID)
-		if _, err := s.ApplicationCommandBulkOverwrite(appID, "", []*discordgo.ApplicationCommand{}); err != nil {
-			logx.Warn("failed clearing global commands", "err", err, "app_id", appID)
-		} else {
-			logx.Info("global commands cleared")
-		}
-		return
-	}
-
-	// No dev guild: register globally.
-	logx.Info("registering slash commands", "target", "global", "app_id", appID, "count", len(cmds), "names", names)
-	res, err := s.ApplicationCommandBulkOverwrite(appID, "", cmds)
-	if err != nil {
-		logx.Error("bulk overwrite commands", "err", err, "target", "global", "app_id", appID)
-		return
-	}
-	registered := make([]string, 0, len(res))
-	for _, c := range res {
-		registered = append(registered, c.Name)
-	}
-	logx.Info("commands registered", "target", "global", "count", len(res), "names", registered)
-
-	// Clear guild-scoped commands to avoid guild+global duplicates.
-	if strings.TrimSpace(devGuild) != "" {
-		logx.Info("clearing dev guild commands due to global registration", "app_id", appID, "guild_id", devGuild)
-		if _, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, []*discordgo.ApplicationCommand{}); err != nil {
-			logx.Warn("failed clearing dev guild commands", "err", err, "app_id", appID, "guild_id", devGuild)
-		} else {
-			logx.Info("dev guild commands cleared", "guild_id", devGuild)
-		}
-	} else {
-		// No dev guild configured; sweep all guilds to ensure no leftover guild-scoped
-		// commands remain that would duplicate the newly-registered global commands.
-		clearAllGuildCommands(s, appID)
-	}
-}
-
-// clearAllGuildCommands clears guild-scoped application commands for all guilds
-// in the current session state. Safe to call in prod after registering global commands.
-func clearAllGuildCommands(s *discordgo.Session, appID string) {
-	for _, g := range s.State.Guilds {
-		gid := g.ID
-		// Best-effort: list commands to log names; proceed even if list fails.
-		names := []string{}
-		if cmds, err := s.ApplicationCommands(appID, gid); err == nil {
-			for _, c := range cmds {
-				names = append(names, c.Name)
-			}
-		}
-		logx.Info("clearing guild commands", "guild_id", gid, "names", names)
-		if _, err := s.ApplicationCommandBulkOverwrite(appID, gid, []*discordgo.ApplicationCommand{}); err != nil {
-			logx.Warn("failed clearing guild commands", "guild_id", gid, "err", err)
-		} else {
-			logx.Info("guild commands cleared", "guild_id", gid)
-		}
-	}
-}
-
-func BindHandlers(s *discordgo.Session, st *state.Store, cfg config.Config, mgr *sources.Manager) {
-	var registerOnce sync.Once
-	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		logx.Info("discord ready", "user", r.User.Username, "discriminator", r.User.Discriminator)
-		// Ensure commands are registered after Ready when application/user ID is available.
-		registerOnce.Do(func() { RegisterCommands(s, cfg.DevGuild, mgr) })
-	})
-	s.AddHandler(func(s *discordgo.Session, ic *discordgo.InteractionCreate) {
-		handleInteraction(s, ic, st, cfg, mgr)
-	})
-}
 
 func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	if ic.Type != discordgo.InteractionApplicationCommand {
@@ -384,34 +30,7 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 	logx.Debug("slash command invoked", "name", data.Name, "guild_id", ic.GuildID, "channel_id", ic.ChannelID, "user_id", userID)
 
-	switch data.Name {
-	case "set-channel":
-		handleSetChannel(s, ic, st)
-	case "set-delivery":
-		handleSetDelivery(s, ic, st)
-	case "notify":
-		handleNotifyToggle(s, ic, st)
-	case "events":
-		handleEventsToggle(s, ic, st)
-	case "set-tz":
-		handleSetTZ(s, ic, st)
-	case "set-run-hour":
-		handleSetRunHour(s, ic, st)
-	case "set-org":
-		handleSetOrg(s, ic, st)
-	case "org-settings":
-		handleOrgSettings(s, ic, st)
-	case "status":
-		handleStatus(s, ic, st, cfg)
-	case "help":
-		handleHelp(s, ic)
-	case "next-event":
-		handleNextEvent(s, ic, st, cfg, mgr)
-	case "create-event":
-		handleCreateEvent(s, ic, st, cfg, mgr)
-	case "create-announcement":
-		handleCreateAnnouncement(s, ic, st, cfg, mgr)
-	default:
+	if !dispatchCommand(s, ic, st, cfg, mgr) {
 		replyEphemeral(s, ic, "Unknown command.")
 	}
 }
@@ -425,13 +44,7 @@ func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	}
 
 	// Permission check: require Manage Channels or Admin on target channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, channelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to set the announcement channel.")
+	if !requireManageOrAdmin(s, ic, channelID, "You need Manage Channels permission to set the announcement channel.") {
 		return
 	}
 
@@ -449,13 +62,7 @@ func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 	state := opts[0].StringValue()
 
 	// Permission check similar to set-channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to change notifications.")
+	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change notifications.") {
 		return
 	}
 
@@ -484,13 +91,7 @@ func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, s
 	state := opts[0].StringValue()
 
 	// Permission check similar to set-channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to change scheduled events.")
+	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change scheduled events.") {
 		return
 	}
 
@@ -519,13 +120,7 @@ func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *sta
 	org := opts[0].StringValue()
 
 	// Permission check similar to set-channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to set the organization.")
+	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to set the organization.") {
 		return
 	}
 
@@ -612,11 +207,7 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 
 	// Resolve org (default to ufc) and provider
-	org := st.GetGuildOrg(ic.GuildID)
-	if org == "" {
-		org = "ufc"
-	}
-	provider, ok := mgr.Provider(org)
+	org, provider, ctx, ok := providerForGuild(st, mgr, ic.GuildID, true)
 	if !ok {
 		replyEphemeral(s, ic, "Unsupported org provider")
 		return
@@ -626,10 +217,6 @@ func handleCreateEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	loc, _ := guildLocation(st, cfg, ic.GuildID)
 
 	// Use provider to select next/ongoing event in guild TZ
-	ctx := context.Background()
-	if org == "ufc" {
-		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
-	}
 	evt, ok, err := pickNextEvent(ctx, provider)
 	if err != nil {
 		replyEphemeral(s, ic, "Error fetching events: "+err.Error())
@@ -693,17 +280,7 @@ func handleCreateAnnouncement(s *discordgo.Session, ic *discordgo.InteractionCre
 	}
 
 	// Permission: require Manage Channels or Admin in the target channel to reduce abuse
-	if ic.Member == nil || ic.Member.User == nil {
-		replyEphemeral(s, ic, "Missing member context")
-		return
-	}
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, chID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to use this (dev).")
+	if !requireManageOrAdmin(s, ic, chID, "You need Manage Channels permission to use this (dev).") {
 		return
 	}
 
@@ -725,13 +302,7 @@ func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	mode := strings.ToLower(opts[0].StringValue())
 
 	// Permission check similar to set-channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to change delivery mode.")
+	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change delivery mode.") {
 		return
 	}
 
@@ -760,13 +331,7 @@ func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 	}
 
 	// Permission check similar to set-channel
-	ok, err := hasManageOrAdmin(s, ic.Member.User.ID, ic.ChannelID)
-	if err != nil {
-		replyEphemeral(s, ic, "Could not check permissions.")
-		return
-	}
-	if !ok {
-		replyEphemeral(s, ic, "You need Manage Channels permission to set the run hour.")
+	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to set the run hour.") {
 		return
 	}
 
@@ -821,36 +386,6 @@ func handleHelp(s *discordgo.Session, ic *discordgo.InteractionCreate) {
 	replyEphemeral(s, ic, buildHelp())
 }
 
-func replyEphemeral(s *discordgo.Session, ic *discordgo.InteractionCreate, content string) {
-	_ = sendInteractionResponse(s, ic, content)
-}
-
-// sendInteractionResponse is a small indirection to allow tests to capture responses
-// without performing real HTTP requests via discordgo. Tests may override this var.
-var sendInteractionResponse = func(s *discordgo.Session, ic *discordgo.InteractionCreate, content string) error {
-	return s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: content,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
-}
-
-// editInteractionResponse allows tests to capture the final content when using deferred responses.
-var editInteractionResponse = func(s *discordgo.Session, ic *discordgo.InteractionCreate, content string) error {
-	_, err := s.InteractionResponseEdit(ic.Interaction, &discordgo.WebhookEdit{Content: &content})
-	return err
-}
-
-// deferInteractionResponse allows tests to avoid making real HTTP requests when acknowledging.
-var deferInteractionResponse = func(s *discordgo.Session, ic *discordgo.InteractionCreate) error {
-	return s.InteractionRespond(ic.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
-	})
-}
-
 func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 	// Acknowledge quickly to avoid the 3s interaction timeout.
 	_ = deferInteractionResponse(s, ic)
@@ -858,21 +393,11 @@ func handleNextEvent(s *discordgo.Session, ic *discordgo.InteractionCreate, st *
 	// Timezone selection for display
 	loc, tzName := guildLocation(st, cfg, ic.GuildID)
 
-	// Resolve org (for display) and ensure we have a provider registered for it
-	org := st.GetGuildOrg(ic.GuildID)
-	if org == "" {
-		org = "ufc"
-	}
-	if _, ok := mgr.Provider(org); !ok {
+	// Resolve org+provider (default to UFC if unset) and build context
+	org, provider, ctx, ok := providerForGuild(st, mgr, ic.GuildID, true)
+	if !ok {
 		_ = editInteractionResponse(s, ic, "Unsupported organization for next-event. Try /set-org to a supported one.")
 		return
-	}
-
-	provider, _ := mgr.Provider(org)
-	// Build provider context with per-guild UFC options
-	ctx := context.Background()
-	if org == "ufc" {
-		ctx = sources.WithUFCIgnoreContender(ctx, st.GetGuildUFCIgnoreContender(ic.GuildID))
 	}
 	ev, ok, err := pickNextEvent(ctx, provider)
 	if err != nil {
