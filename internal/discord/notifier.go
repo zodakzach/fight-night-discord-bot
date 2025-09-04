@@ -10,6 +10,7 @@ import (
 
 	"github.com/zodakzach/fight-night-discord-bot/internal/config"
 	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sentryx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
@@ -19,6 +20,8 @@ func StartNotifier(s *discordgo.Session, st *state.Store, cfg config.Config, mgr
 	// matches the current hour in their timezone. This supports per-guild overrides
 	// while keeping the env RUN_AT as the default (minutes ignored).
 	go func() {
+		// Capture unexpected panics in the notifier loop
+		defer sentryx.Recover()
 		time.Sleep(2 * time.Second)
 		runNotifierTick(s, st, mgr, cfg)
 		scheduleHourly(func() { runNotifierTick(s, st, mgr, cfg) })

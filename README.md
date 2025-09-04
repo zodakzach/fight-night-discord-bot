@@ -91,6 +91,9 @@ Adding a migration:
   - `TZ`: IANA timezone (e.g., `America/New_York`)
   - `DB_FILE`: SQLite database path (default `state.db`; Docker runtime defaults to `/data/bot.db`)
   - `LOG_LEVEL`: `debug` | `info` | `warn` | `error` (default `info`)
+  - `SENTRY_DSN`: Enable Sentry error reporting when set
+  - `SENTRY_ENV`/`SENTRY_ENVIRONMENT`: Optional environment name (default `production`)
+  - `SENTRY_TRACES_SAMPLE_RATE`: Optional performance sample rate (e.g., `0.2`)
 
 Example `.env`:
 ```
@@ -99,6 +102,9 @@ GUILD_ID=123456789012345678
 RUN_AT=16:00
 TZ=America/New_York
 LOG_LEVEL=info
+SENTRY_DSN=your-sentry-dsn
+# SENTRY_ENV=development
+# SENTRY_TRACES_SAMPLE_RATE=0.0
 ```
 
 ## Build, Run, Test

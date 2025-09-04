@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -12,6 +13,7 @@ import (
 	discpkg "github.com/zodakzach/fight-night-discord-bot/internal/discord"
 	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/migrate"
+	"github.com/zodakzach/fight-night-discord-bot/internal/sentryx"
 	"github.com/zodakzach/fight-night-discord-bot/internal/sources"
 	"github.com/zodakzach/fight-night-discord-bot/internal/state"
 )
@@ -19,6 +21,13 @@ import (
 func main() {
 	logx.Init("fight-night-bot")
 	cfg := cfgpkg.Load()
+
+	// Initialize Sentry (no-op if SENTRY_DSN is not set)
+	if err := sentryx.InitFromEnv("fight-night-bot"); err != nil {
+		logx.Warn("sentry init failed", "err", err)
+	}
+	// Capture unexpected panics and still crash
+	defer sentryx.Recover()
 
 	// Apply DB migrations at startup to keep schema up-to-date.
 	if err := migrate.Run(cfg.StatePath); err != nil {
@@ -52,4 +61,6 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
 	logx.Info("shutdown signal received; closing session")
+	// Ensure any buffered Sentry events are sent before exit
+	sentryx.Flush(2 * time.Second)
 }
