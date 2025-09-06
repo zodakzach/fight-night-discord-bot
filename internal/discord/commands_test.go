@@ -178,7 +178,7 @@ func TestHandleHelp_IncludesKeyLines(t *testing.T) {
 
 	handleHelp(s, ic)
 
-	for _, want := range []string{"/set-org", "/set-channel", "/notify", "/set-tz", "/status", "/next-event"} {
+	for _, want := range []string{"/settings org", "/settings channel", "/settings notifications", "/settings timezone", "/status", "/next-event"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help reply missing %q in %q", want, got)
 		}
@@ -204,7 +204,7 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-tz"},
 	}}
 	handleSetTZ(s, ic, st)
-	if !strings.Contains(got, "Usage: /set-tz") {
+	if !strings.Contains(got, "Usage: /settings timezone") {
 		t.Fatalf("expected usage when missing option, got %q", got)
 	}
 
@@ -265,7 +265,7 @@ func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "notify"},
 	}}
 	handleNotifyToggle(s, ic, st)
-	if !strings.Contains(got, "Usage: /notify state:<on|off>") {
+	if !strings.Contains(got, "Usage: /settings notifications state:<on|off>") {
 		t.Fatalf("expected notify usage message, got %q", got)
 	}
 }
@@ -288,7 +288,7 @@ func TestHandleSetOrg_UsageWhenMissingOption(t *testing.T) {
 		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-org"},
 	}}
 	handleSetOrg(s, ic, st)
-	if !strings.Contains(got, "Usage: /set-org org:<ufc>") {
+	if !strings.Contains(got, "Usage: /settings org org:<ufc>") {
 		t.Fatalf("expected set-org usage message, got %q", got)
 	}
 }

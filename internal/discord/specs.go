@@ -29,44 +29,94 @@ func commandSpecs(orgs []string) []commandSpec {
 	return []commandSpec{
 		{
 			Def: &discordgo.ApplicationCommand{
-				Name:        "notify",
-				Description: "Enable or disable fight-night posts for this guild",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "state",
-					Description: "Enable or disable notifications",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
-				}},
+				Name:        "settings",
+				Description: "Configure guild settings",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "org",
+						Description: "Choose the organization (currently UFC only)",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "org",
+							Description: "Organization",
+							Required:    true,
+							Choices:     orgChoices,
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "channel",
+						Description: "Pick the channel for notifications",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:         discordgo.ApplicationCommandOptionChannel,
+							Name:         "channel",
+							Description:  "Channel to use (default: this channel)",
+							Required:     false,
+							ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "delivery",
+						Description: "Choose message delivery: regular message or announcement",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "mode",
+							Description: "Delivery mode",
+							Required:    true,
+							Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "message", Value: "message"}, {Name: "announcement", Value: "announcement"}},
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "hour",
+						Description: "Set daily notification hour (0-23)",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionInteger,
+							Name:        "hour",
+							Description: "Hour of day (0-23)",
+							Required:    true,
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "timezone",
+						Description: "Set the guild's timezone (IANA name)",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "tz",
+							Description: "Timezone, e.g., America/Los_Angeles",
+							Required:    true,
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "notifications",
+						Description: "Enable or disable fight-night posts for this guild",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "state",
+							Description: "Enable or disable notifications",
+							Required:    true,
+							Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
+						}},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "events",
+						Description: "Enable or disable creating Scheduled Events (day-before)",
+						Options: []*discordgo.ApplicationCommandOption{{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "state",
+							Description: "Enable or disable scheduled events",
+							Required:    true,
+							Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
+						}},
+					},
+				},
 			},
-			Note: "Requires org to be set (use /set-org)",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "events",
-				Description: "Enable or disable creating Scheduled Events (day-before)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "state",
-					Description: "Enable or disable scheduled events",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "on", Value: "on"}, {Name: "off", Value: "off"}},
-				}},
-			},
-			Note: "Creates a Discord Scheduled Event the day before fight night.",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-org",
-				Description: "Choose the organization (currently UFC only)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "org",
-					Description: "Organization",
-					Required:    true,
-					Choices:     orgChoices,
-				}},
-			},
+			Note: "Settings require Manage Channels permission (except timezone).",
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
@@ -94,31 +144,6 @@ func commandSpecs(orgs []string) []commandSpec {
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
-				Name:        "set-tz",
-				Description: "Set the guild's timezone (IANA name)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "tz",
-					Description: "Timezone, e.g., America/Los_Angeles",
-					Required:    true,
-				}},
-			},
-			Note: "Example: America/Los_Angeles",
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-run-hour",
-				Description: "Set daily notification hour (0-23)",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "hour",
-					Description: "Hour of day (0-23)",
-					Required:    true,
-				}},
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
 				Name:        "status",
 				Description: "Show current bot settings for this guild",
 			},
@@ -128,33 +153,6 @@ func commandSpecs(orgs []string) []commandSpec {
 				Name:        "help",
 				Description: "Show available commands and usage",
 			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-channel",
-				Description: "Pick the channel for notifications",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:         discordgo.ApplicationCommandOptionChannel,
-					Name:         "channel",
-					Description:  "Channel to use (default: this channel)",
-					Required:     false,
-					ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
-				}},
-			},
-		},
-		{
-			Def: &discordgo.ApplicationCommand{
-				Name:        "set-delivery",
-				Description: "Choose message delivery: regular message or announcement",
-				Options: []*discordgo.ApplicationCommandOption{{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "mode",
-					Description: "Delivery mode",
-					Required:    true,
-					Choices:     []*discordgo.ApplicationCommandOptionChoice{{Name: "message", Value: "message"}, {Name: "announcement", Value: "announcement"}},
-				}},
-			},
-			Note: "Announcement mode publishes in Announcement channels and may require Manage Messages.",
 		},
 		{
 			Def: &discordgo.ApplicationCommand{
@@ -191,31 +189,106 @@ func buildHelp() string {
 		if s.Def.Name == "help" { // avoid listing help in help
 			continue
 		}
-		usage := "/" + s.Def.Name
-		if len(s.Def.Options) > 0 {
-			parts := make([]string, 0, len(s.Def.Options))
-			for _, opt := range s.Def.Options {
-				seg := opt.Name + ":" + optionUsage(opt)
-				if !opt.Required {
-					seg = "[" + seg + "]"
-				}
-				parts = append(parts, seg)
+		lines := renderCommandUsageLines("/"+s.Def.Name, s.Def.Options)
+		if len(lines) == 0 {
+			// simple command without options
+			line := "/" + s.Def.Name
+			if desc := strings.TrimSpace(s.Def.Description); desc != "" {
+				line += " — " + desc
 			}
-			usage += " " + strings.Join(parts, " ")
+			if note := strings.TrimSpace(s.Note); note != "" {
+				line += ". " + note
+			}
+			b.WriteString("- ")
+			b.WriteString(line)
+			b.WriteString("\n")
+			continue
 		}
-		b.WriteString("- ")
-		b.WriteString(usage)
-		if desc := strings.TrimSpace(s.Def.Description); desc != "" {
-			b.WriteString(" — ")
-			b.WriteString(desc)
+		for _, usage := range lines {
+			b.WriteString("- ")
+			b.WriteString(usage)
+			if note := strings.TrimSpace(s.Note); note != "" {
+				b.WriteString(". ")
+				b.WriteString(note)
+			}
+			b.WriteString("\n")
 		}
-		if note := strings.TrimSpace(s.Note); note != "" {
-			b.WriteString(". ")
-			b.WriteString(note)
-		}
-		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderCommandUsageLines expands subcommands into individual usage lines for help.
+func renderCommandUsageLines(prefix string, opts []*discordgo.ApplicationCommandOption) []string {
+	// Detect subcommands/groups and expand; otherwise render a single line for regular options
+	hasSub := false
+	for _, opt := range opts {
+		if opt.Type == discordgo.ApplicationCommandOptionSubCommand || opt.Type == discordgo.ApplicationCommandOptionSubCommandGroup {
+			hasSub = true
+			break
+		}
+	}
+	var lines []string
+	if hasSub {
+		for _, opt := range opts {
+			switch opt.Type {
+			case discordgo.ApplicationCommandOptionSubCommand:
+				seg := prefix + " " + opt.Name
+				if len(opt.Options) > 0 {
+					parts := make([]string, 0, len(opt.Options))
+					for _, o := range opt.Options {
+						p := o.Name + ":" + optionUsage(o)
+						if !o.Required {
+							p = "[" + p + "]"
+						}
+						parts = append(parts, p)
+					}
+					seg += " " + strings.Join(parts, " ")
+				}
+				// Include subcommand description
+				if strings.TrimSpace(opt.Description) != "" {
+					seg += " — " + strings.TrimSpace(opt.Description)
+				}
+				lines = append(lines, seg)
+			case discordgo.ApplicationCommandOptionSubCommandGroup:
+				for _, sub := range opt.Options {
+					if sub.Type != discordgo.ApplicationCommandOptionSubCommand {
+						continue
+					}
+					seg := prefix + " " + opt.Name + " " + sub.Name
+					if len(sub.Options) > 0 {
+						parts := make([]string, 0, len(sub.Options))
+						for _, o := range sub.Options {
+							p := o.Name + ":" + optionUsage(o)
+							if !o.Required {
+								p = "[" + p + "]"
+							}
+							parts = append(parts, p)
+						}
+						seg += " " + strings.Join(parts, " ")
+					}
+					if strings.TrimSpace(sub.Description) != "" {
+						seg += " — " + strings.TrimSpace(sub.Description)
+					}
+					lines = append(lines, seg)
+				}
+			}
+		}
+		return lines
+	}
+	// No subcommands: render a single usage with regular options
+	usage := prefix
+	if len(opts) > 0 {
+		parts := make([]string, 0, len(opts))
+		for _, o := range opts {
+			seg := o.Name + ":" + optionUsage(o)
+			if !o.Required {
+				seg = "[" + seg + "]"
+			}
+			parts = append(parts, seg)
+		}
+		usage += " " + strings.Join(parts, " ")
+	}
+	return []string{usage}
 }
 
 func optionUsage(opt *discordgo.ApplicationCommandOption) string {

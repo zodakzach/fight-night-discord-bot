@@ -21,32 +21,33 @@ I'm lazy and tired of manually posting fight-night events in my Discord server. 
 - Next-event lookup via slash command.
 
 ## Commands
-Representative commands (names/args may vary slightly based on current implementation):
-- `/set-org org:<ufc>`: Choose the organization (currently UFC only). Required before enabling notifications.
-- `/set-channel channel:<#channel>`: Pick the channel for notifications.
-- `/notify on|off`: Enable or disable fight-night posts for this guild (requires org set; default is off).
-- `/events state:<on|off>`: Enable or disable creating Discord Scheduled Events the day before an event (requires org set; bot needs Manage Events).
-- `/set-delivery mode:<message|announcement>`: Choose regular messages or announcements. Announcement mode only applies when the target channel is an Announcement channel and the bot has permission to publish; otherwise it falls back to a normal message.
+Top-level commands:
+- `/settings`: Configure guild settings via subcommands:
+  - `/settings org org:<ufc>`: Choose the organization (currently UFC only). Required before enabling notifications.
+  - `/settings channel [channel:<#channel>]`: Pick the channel for notifications (defaults to the current channel if omitted).
+  - `/settings delivery mode:<message|announcement>`: Choose regular messages or announcements. Announcement mode applies only in Announcement channels.
+  - `/settings hour hour:<0-23>`: Set the daily notification hour (guild timezone).
+  - `/settings timezone tz:<Region/City>`: Set the guild timezone (IANA name).
+  - `/settings notifications state:<on|off>`: Enable or disable fight-night posts (requires org set).
+  - `/settings events state:<on|off>`: Enable or disable creating Discord Scheduled Events the day before an event.
 - `/next-event`: Show the next event for the selected org.
-- `/set-run-hour hour:<0-23>`: Set the daily notification hour (guild timezone).
-- `/set-tz tz:<Region/City>`: Set the guild timezone (IANA name).
 - `/status`: Show current settings for this guild.
 - `/help`: Show available commands and usage.
 
 Dev-only (registered only when `GUILD_ID` is set):
-- `/create-event`: [dev] Create a Discord Scheduled Event for the next org event (requires Manage Events on the guild; used for testing scheduled-events behavior).
-- `/create-announcement`: [dev] Post the next event message+embed now via the notifier path (requires Manage Channels in the target channel). Useful to preview the exact notifier output in Discord without waiting for the scheduler or event day.
+- `/dev-test create-event`: Create a Discord Scheduled Event for the next org event (requires Manage Events; testing only).
+- `/dev-test create-announcement`: Post the next event message+embed now via the notifier path (requires Manage Channels; testing only).
 
 ## Getting Started
-- Set org: run `/set-org org:<ufc>`.
-- Pick channel: run `/set-channel channel:<#your-channel>`.
-- Optional timezone: run `/set-tz tz:<Region/City>` (defaults to `TZ` env).
-- Enable notifications: run `/notify on` (notifications are off by default).
+- Set org: run `/settings org org:<ufc>`.
+- Pick channel: run `/settings channel channel:<#your-channel>`.
+- Optional timezone: run `/settings timezone tz:<Region/City>` (defaults to `TZ` env).
+- Enable notifications: run `/settings notifications on` (notifications are off by default).
 - Verify: run `/next-event` to see the next event for your org.
-  - For a full preview of the daily post, use the dev command `/create-announcement` in your dev guild.
+  - For a full preview of the daily post, use the dev command `/dev-test create-announcement` in your dev guild.
 
 Notes
-- Posts run daily at the configured hour (per guild via `/set-run-hour`, default from `RUN_AT`) in your guild's timezone; event-day posts only. Minutes are ignored.
+- Posts run daily at the configured hour (per guild via `/settings hour`, default from `RUN_AT`) in your guild's timezone; event-day posts only. Minutes are ignored.
 - You must set an org before enabling notifications.
 - Announcement mode works only in Announcement (News) channels. The bot will send the message normally and then attempt to publish it (crosspost). If the channel type is not Announcement or publishing fails, the message remains as a regular post.
 

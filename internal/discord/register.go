@@ -24,14 +24,22 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 	// Define top-level commands from centralized specs
 	cmds := applicationCommands()
 
-	// Dev-only helper commands
-	devCreateEvent := &discordgo.ApplicationCommand{
-		Name:        "create-event",
-		Description: "[dev] Create a scheduled event for the next org event",
-	}
-	devCreateAnnouncement := &discordgo.ApplicationCommand{
-		Name:        "create-announcement",
-		Description: "[dev] Post the next event message+embed now",
+	// Dev-only parent command with subcommands
+	devTest := &discordgo.ApplicationCommand{
+		Name:        "dev-test",
+		Description: "[dev] Tools for testing",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "create-event",
+				Description: "Create a scheduled event for the next org event",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "create-announcement",
+				Description: "Post the next event message+embed now",
+			},
+		},
 	}
 
 	appID := s.State.User.ID
@@ -41,10 +49,10 @@ func RegisterCommands(s *discordgo.Session, devGuild string, mgr *sources.Manage
 		names = append(names, c.Name)
 	}
 	if devGuild != "" {
-		// Include the dev-only commands only for the dev guild registration.
-		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+2)
+		// Include the dev-only command only for the dev guild registration.
+		cmdsWithDev := make([]*discordgo.ApplicationCommand, 0, len(cmds)+1)
 		cmdsWithDev = append(cmdsWithDev, cmds...)
-		cmdsWithDev = append(cmdsWithDev, devCreateEvent, devCreateAnnouncement)
+		cmdsWithDev = append(cmdsWithDev, devTest)
 		logx.Info("registering slash commands", "target", "guild", "app_id", appID, "guild_id", devGuild, "count", len(cmds), "names", names)
 		res, err := s.ApplicationCommandBulkOverwrite(appID, devGuild, cmdsWithDev)
 		if err != nil {

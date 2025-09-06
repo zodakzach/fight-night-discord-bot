@@ -12,26 +12,8 @@ type handlerFunc func(s *discordgo.Session, ic *discordgo.InteractionCreate, st 
 
 // routes maps command names to handlers. Thin wrappers adapt to existing handler signatures.
 var routes = map[string]handlerFunc{
-	"set-channel": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleSetChannel(s, ic, st)
-	},
-	"set-delivery": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleSetDelivery(s, ic, st)
-	},
-	"notify": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleNotifyToggle(s, ic, st)
-	},
-	"events": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleEventsToggle(s, ic, st)
-	},
-	"set-tz": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleSetTZ(s, ic, st)
-	},
-	"set-run-hour": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleSetRunHour(s, ic, st)
-	},
-	"set-org": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
-		handleSetOrg(s, ic, st)
+	"settings": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+		handleSettings(s, ic, st, cfg, mgr)
 	},
 	"org-settings": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, _ config.Config, _ *sources.Manager) {
 		handleOrgSettings(s, ic, st)
@@ -45,12 +27,9 @@ var routes = map[string]handlerFunc{
 	"next-event": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
 		handleNextEvent(s, ic, st, cfg, mgr)
 	},
-	// Dev helpers
-	"create-event": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
-		handleCreateEvent(s, ic, st, cfg, mgr)
-	},
-	"create-announcement": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
-		handleCreateAnnouncement(s, ic, st, cfg, mgr)
+	// Dev helpers grouped under /dev-test
+	"dev-test": func(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config, mgr *sources.Manager) {
+		handleDevTest(s, ic, st, cfg, mgr)
 	},
 }
 
