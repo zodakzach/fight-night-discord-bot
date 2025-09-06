@@ -185,9 +185,10 @@ func TestHandleHelp_IncludesKeyLines(t *testing.T) {
 	}
 }
 
-func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
+func TestSettings_Timezone_UsageInvalidValid(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
+	cfg := config.Config{}
 
 	var got string
 	old := sendInteractionResponse
@@ -197,13 +198,16 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 	}
 	defer func() { sendInteractionResponse = old }()
 
-	// No options -> usage
+	// No tz option under /settings timezone -> usage
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		GuildID: "g1",
 		Type:    discordgo.InteractionApplicationCommand,
-		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-tz"},
+		Data: discordgo.ApplicationCommandInteractionData{
+			Name:    "settings",
+			Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "timezone"}},
+		},
 	}}
-	handleSetTZ(s, ic, st)
+	handleSettings(s, ic, st, cfg, nil)
 	if !strings.Contains(got, "Usage: /settings timezone") {
 		t.Fatalf("expected usage when missing option, got %q", got)
 	}
@@ -214,15 +218,15 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 		GuildID: "g1",
 		Type:    discordgo.InteractionApplicationCommand,
 		Data: discordgo.ApplicationCommandInteractionData{
-			Name: "set-tz",
+			Name: "settings",
 			Options: []*discordgo.ApplicationCommandInteractionDataOption{{
-				Type:  discordgo.ApplicationCommandOptionString,
-				Name:  "tz",
-				Value: "Not/A_Real_TZ",
+				Type:    discordgo.ApplicationCommandOptionSubCommand,
+				Name:    "timezone",
+				Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionString, Name: "tz", Value: "Not/A_Real_TZ"}},
 			}},
 		},
 	}}
-	handleSetTZ(s, ic, st)
+	handleSettings(s, ic, st, cfg, nil)
 	if !strings.Contains(got, "Invalid timezone") {
 		t.Fatalf("expected invalid tz message, got %q", got)
 	}
@@ -233,23 +237,24 @@ func TestHandleSetTZ_UsageAndInvalidAndValid(t *testing.T) {
 		GuildID: "g1",
 		Type:    discordgo.InteractionApplicationCommand,
 		Data: discordgo.ApplicationCommandInteractionData{
-			Name: "set-tz",
+			Name: "settings",
 			Options: []*discordgo.ApplicationCommandInteractionDataOption{{
-				Type:  discordgo.ApplicationCommandOptionString,
-				Name:  "tz",
-				Value: "Europe/London",
+				Type:    discordgo.ApplicationCommandOptionSubCommand,
+				Name:    "timezone",
+				Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionString, Name: "tz", Value: "Europe/London"}},
 			}},
 		},
 	}}
-	handleSetTZ(s, ic, st)
+	handleSettings(s, ic, st, cfg, nil)
 	if !strings.Contains(got, "Timezone updated to Europe/London") {
 		t.Fatalf("expected success tz message, got %q", got)
 	}
 }
 
-func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
+func TestSettings_Notifications_UsageWhenMissingOption(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
+	cfg := config.Config{}
 
 	var got string
 	old := sendInteractionResponse
@@ -262,17 +267,21 @@ func TestHandleNotifyToggle_UsageWhenMissingOption(t *testing.T) {
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		GuildID: "g1",
 		Type:    discordgo.InteractionApplicationCommand,
-		Data:    discordgo.ApplicationCommandInteractionData{Name: "notify"},
+		Data: discordgo.ApplicationCommandInteractionData{
+			Name:    "settings",
+			Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "notifications"}},
+		},
 	}}
-	handleNotifyToggle(s, ic, st)
+	handleSettings(s, ic, st, cfg, nil)
 	if !strings.Contains(got, "Usage: /settings notifications state:<on|off>") {
 		t.Fatalf("expected notify usage message, got %q", got)
 	}
 }
 
-func TestHandleSetOrg_UsageWhenMissingOption(t *testing.T) {
+func TestSettings_Org_UsageWhenMissingOption(t *testing.T) {
 	s := &discordgo.Session{}
 	st := state.Load(":memory:")
+	cfg := config.Config{}
 
 	var got string
 	old := sendInteractionResponse
@@ -285,9 +294,12 @@ func TestHandleSetOrg_UsageWhenMissingOption(t *testing.T) {
 	ic := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		GuildID: "g1",
 		Type:    discordgo.InteractionApplicationCommand,
-		Data:    discordgo.ApplicationCommandInteractionData{Name: "set-org"},
+		Data: discordgo.ApplicationCommandInteractionData{
+			Name:    "settings",
+			Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "org"}},
+		},
 	}}
-	handleSetOrg(s, ic, st)
+	handleSettings(s, ic, st, cfg, nil)
 	if !strings.Contains(got, "Usage: /settings org org:<ufc>") {
 		t.Fatalf("expected set-org usage message, got %q", got)
 	}

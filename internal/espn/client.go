@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/zodakzach/fight-night-discord-bot/internal/logx"
 )
 
 const ufcEventsURL = "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=%s"
@@ -143,7 +145,10 @@ type Bout struct {
 // additional calls to resolve athlete display names. This method performs
 // the minimal required fetches to build a simple bout list.
 func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) ([]Bout, error) {
+	done := logx.Measure("espn.fetch.card", "event_id", eventID)
 	if strings.TrimSpace(eventID) == "" {
+		// still log quick error path timing
+		done("error", "missing_event_id")
 		return nil, fmt.Errorf("eventID is required")
 	}
 
@@ -159,11 +164,13 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		done("step", "list_competitions", "error", err.Error())
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		done("step", "list_competitions", "status", resp.StatusCode)
 		return nil, fmt.Errorf("ESPN %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -173,9 +180,11 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&compList); err != nil {
+		done("step", "decode_competitions", "error", err.Error())
 		return nil, err
 	}
 	if len(compList.Items) == 0 {
+		done("competitions", 0)
 		return nil, nil
 	}
 
@@ -203,6 +212,7 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 
 	// Step 2: fetch each competition and resolve athlete names
 	bouts := make([]Bout, 0, len(compList.Items))
+	athleteFetches := 0
 	for _, it := range compList.Items {
 		var comp struct {
 			Type struct {
@@ -215,6 +225,7 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 			} `json:"competitors"`
 		}
 		if err := doGet(it.Ref, &comp); err != nil {
+			done("step", "fetch_competition", "error", err.Error())
 			return nil, err
 		}
 		names := make([]string, 0, 2)
@@ -226,8 +237,10 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 				DisplayName string `json:"displayName"`
 			}
 			if err := doGet(cpt.Athlete.Ref, &ath); err != nil {
+				done("step", "fetch_athlete", "error", err.Error())
 				return nil, err
 			}
+			athleteFetches++
 			if ath.DisplayName != "" {
 				names = append(names, ath.DisplayName)
 			}
@@ -242,6 +255,7 @@ func (c *HTTPClient) FetchUFCCardForEvent(ctx context.Context, eventID string) (
 		}
 		bouts = append(bouts, Bout{Fighter1: f1, Fighter2: f2, WeightClass: comp.Type.Text})
 	}
+	done("competitions", len(compList.Items), "athlete_fetches", athleteFetches, "bouts", len(bouts))
 	return bouts, nil
 }
 
@@ -299,10 +313,12 @@ func (c *HTTPClient) FetchNextOrOngoingEventAndCard(ctx context.Context, ignoreL
 // FetchUFCScoreboardRoot fetches the UFC scoreboard document for a given ESPN 'dates'
 // parameter (usually a year like "2025") and decodes into Root.
 func (c *HTTPClient) FetchUFCScoreboardRoot(ctx context.Context, dates string) (Root, error) {
+	done := logx.Measure("espn.fetch.scoreboard", "dates", dates)
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(ufcEventsURL, dates), nil)
 	if err != nil {
+		done("error", err.Error())
 		return Root{}, err
 	}
 	if c.UserAgent != "" {
@@ -311,16 +327,24 @@ func (c *HTTPClient) FetchUFCScoreboardRoot(ctx context.Context, dates string) (
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		done("error", err.Error())
 		return Root{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		done("status", resp.StatusCode)
 		return Root{}, fmt.Errorf("ESPN %d", resp.StatusCode)
 	}
 	var root Root
 	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
+		done("error", err.Error())
 		return Root{}, err
 	}
+	calCount := 0
+	if len(root.Leagues) > 0 {
+		calCount = len(root.Leagues[0].Calendar)
+	}
+	done("events", len(root.Events), "calendar_entries", calCount)
 	return root, nil
 }
 

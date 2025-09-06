@@ -90,6 +90,41 @@ func Fatal(msg string, kv ...any) {
 	os.Exit(1)
 }
 
+// Measure returns a closure that logs the elapsed time since creation
+// when invoked. Typical usage:
+//
+//	done := logx.Measure("fetch ufc scoreboard", "dates", dates)
+//	defer done()
+//
+// You can pass more fields at call time, which are merged into the log entry.
+func Measure(msg string, kv ...any) func(more ...any) {
+	start := time.Now()
+	return func(more ...any) {
+		elapsed := time.Since(start)
+		// Merge original kv, duration, and any additional fields
+		all := append([]any{}, kv...)
+		all = append(all, "duration_ms", elapsed.Milliseconds())
+		if len(more) > 0 {
+			all = append(all, more...)
+		}
+		defaultLogger.Info(msg, all...)
+	}
+}
+
+// MeasureDebug is like Measure but logs at debug level.
+func MeasureDebug(msg string, kv ...any) func(more ...any) {
+	start := time.Now()
+	return func(more ...any) {
+		elapsed := time.Since(start)
+		all := append([]any{}, kv...)
+		all = append(all, "duration_ms", elapsed.Milliseconds())
+		if len(more) > 0 {
+			all = append(all, more...)
+		}
+		defaultLogger.Debug(msg, all...)
+	}
+}
+
 // extractErr looks for a key named "err" and returns it if it's an error.
 func extractErr(kv ...any) error {
 	// Expect alternating key/value pairs

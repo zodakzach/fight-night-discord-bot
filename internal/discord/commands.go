@@ -30,106 +30,12 @@ func handleInteraction(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 	logx.Debug("slash command invoked", "name", data.Name, "guild_id", ic.GuildID, "channel_id", ic.ChannelID, "user_id", userID)
 
-	if !dispatchCommand(s, ic, st, cfg, mgr) {
+	// Measure how long the command execution takes
+	done := logx.Measure("command.exec", "name", data.Name, "guild_id", ic.GuildID)
+	handled := dispatchCommand(s, ic, st, cfg, mgr)
+	done("handled", handled)
+	if !handled {
 		replyEphemeral(s, ic, "Unknown command.")
-	}
-}
-
-func handleSetChannel(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	// Choose provided channel or current channel
-	opts := ic.ApplicationCommandData().Options
-	channelID := ic.ChannelID
-	if len(opts) > 0 {
-		channelID = opts[0].ChannelValue(s).ID
-	}
-
-	// Permission check: require Manage Channels or Admin on target channel
-	if !requireManageOrAdmin(s, ic, channelID, "You need Manage Channels permission to set the announcement channel.") {
-		return
-	}
-
-	st.UpdateGuildChannel(ic.GuildID, channelID)
-
-	replyEphemeral(s, ic, "Notification channel updated.")
-}
-
-func handleNotifyToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings notifications state:<on|off>")
-		return
-	}
-	state := opts[0].StringValue()
-
-	// Permission check similar to set-channel
-	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change notifications.") {
-		return
-	}
-
-	switch state {
-	case "on":
-		if !st.HasGuildOrg(ic.GuildID) {
-			replyEphemeral(s, ic, "Please set an organization first with /settings org before enabling notifications.")
-			return
-		}
-		st.UpdateGuildNotifyEnabled(ic.GuildID, true)
-		replyEphemeral(s, ic, "Notifications enabled.")
-	case "off":
-		st.UpdateGuildNotifyEnabled(ic.GuildID, false)
-		replyEphemeral(s, ic, "Notifications disabled.")
-	default:
-		replyEphemeral(s, ic, "Invalid state. Use on or off.")
-	}
-}
-
-func handleEventsToggle(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings events state:<on|off>")
-		return
-	}
-	state := opts[0].StringValue()
-
-	// Permission check similar to set-channel
-	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change scheduled events.") {
-		return
-	}
-
-	switch state {
-	case "on":
-		if !st.HasGuildOrg(ic.GuildID) {
-			replyEphemeral(s, ic, "Please set an organization first with /settings org before enabling scheduled events.")
-			return
-		}
-		st.UpdateGuildEventsEnabled(ic.GuildID, true)
-		replyEphemeral(s, ic, "Scheduled events enabled (will create day-before).")
-	case "off":
-		st.UpdateGuildEventsEnabled(ic.GuildID, false)
-		replyEphemeral(s, ic, "Scheduled events disabled.")
-	default:
-		replyEphemeral(s, ic, "Invalid state. Use on or off.")
-	}
-}
-
-func handleSetOrg(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings org org:<ufc>")
-		return
-	}
-	org := opts[0].StringValue()
-
-	// Permission check similar to set-channel
-	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to set the organization.") {
-		return
-	}
-
-	switch org {
-	case "ufc":
-		st.UpdateGuildOrg(ic.GuildID, org)
-		replyEphemeral(s, ic, "Organization set to UFC.")
-	default:
-		replyEphemeral(s, ic, "Unsupported org. Currently only 'ufc' is available.")
 	}
 }
 
@@ -172,21 +78,6 @@ func handleOrgSettings(s *discordgo.Session, ic *discordgo.InteractionCreate, st
 	}
 
 	replyEphemeral(s, ic, "Unknown org. Currently supported: ufc")
-}
-
-func handleSetTZ(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings timezone tz:<IANA timezone>")
-		return
-	}
-	tz := opts[0].StringValue()
-	if _, err := time.LoadLocation(tz); err != nil {
-		replyEphemeral(s, ic, "Invalid timezone. Example: America/Los_Angeles")
-		return
-	}
-	st.UpdateGuildTZ(ic.GuildID, tz)
-	replyEphemeral(s, ic, "Timezone updated to "+tz)
 }
 
 // handleCreateEvent: dev-only helper to create a scheduled event for the next org event.
@@ -291,52 +182,6 @@ func handleCreateAnnouncement(s *discordgo.Session, ic *discordgo.InteractionCre
 		return
 	}
 	replyEphemeral(s, ic, "Skipped: "+reason)
-}
-
-func handleSetDelivery(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings delivery mode:<message|announcement>")
-		return
-	}
-	mode := strings.ToLower(opts[0].StringValue())
-
-	// Permission check similar to set-channel
-	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to change delivery mode.") {
-		return
-	}
-
-	switch mode {
-	case "message":
-		st.UpdateGuildAnnounceEnabled(ic.GuildID, false)
-		replyEphemeral(s, ic, "Delivery mode set to regular messages.")
-	case "announcement":
-		st.UpdateGuildAnnounceEnabled(ic.GuildID, true)
-		replyEphemeral(s, ic, "Delivery mode set to announcements (when channel supports it).")
-	default:
-		replyEphemeral(s, ic, "Invalid mode. Use message or announcement.")
-	}
-}
-
-func handleSetRunHour(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store) {
-	opts := ic.ApplicationCommandData().Options
-	if len(opts) == 0 {
-		replyEphemeral(s, ic, "Usage: /settings hour hour:<0-23>")
-		return
-	}
-	hour := int(opts[0].IntValue())
-	if hour < 0 || hour > 23 {
-		replyEphemeral(s, ic, "Invalid hour. Use 0-23 (e.g., 16)")
-		return
-	}
-
-	// Permission check similar to set-channel
-	if !requireManageOrAdmin(s, ic, ic.ChannelID, "You need Manage Channels permission to set the run hour.") {
-		return
-	}
-
-	st.UpdateGuildRunHour(ic.GuildID, hour)
-	replyEphemeral(s, ic, fmt.Sprintf("Daily run hour updated to %02d:00 (guild timezone)", hour))
 }
 
 func handleStatus(s *discordgo.Session, ic *discordgo.InteractionCreate, st *state.Store, cfg config.Config) {
