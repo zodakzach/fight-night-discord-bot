@@ -39,6 +39,7 @@ Dev-only (registered only when `GUILD_ID` is set):
 - `/dev-test create-announcement`: Post the next event message+embed now via the notifier path (requires Manage Channels; testing only).
 
 ## Getting Started
+- Invite the bot: [Add Fight Night Bot to your server](https://discord.com/oauth2/authorize?client_id=1407815699929497760).
 - Set org: run `/settings org org:<ufc>`.
 - Pick channel: run `/settings channel channel:<#your-channel>`.
 - Optional timezone: run `/settings timezone tz:<Region/City>` (defaults to `TZ` env).
